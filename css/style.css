@@ -1,0 +1,71 @@
+:root {
+  --bg: #1b1f1a;
+  --panel: #262c25;
+  --text: #e8e6dc;
+  --a: #c0392b;
+  --b: #2e6fbf;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  display: grid;
+  grid-template-columns: 1fr 18rem;
+  grid-template-rows: auto 1fr;
+  min-height: 100vh;
+}
+header {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: .6rem 1rem;
+  background: var(--panel);
+}
+header h1 { margin: 0; font-size: 1.2rem; letter-spacing: .1em; text-transform: uppercase; }
+#turn { font-weight: 600; margin-left: auto; }
+#turn.owner-A { color: #ff7b6b; }
+#turn.owner-B { color: #6fb0ff; }
+button {
+  background: #3a423a;
+  color: var(--text);
+  border: 1px solid #555;
+  padding: .4rem .8rem;
+  border-radius: 4px;
+  cursor: pointer;
+}
+button:hover { background: #4a544a; }
+main { padding: .5rem; overflow: auto; }
+#board { width: 100%; max-height: calc(100vh - 4rem); }
+aside { background: var(--panel); padding: 1rem; overflow: auto; }
+aside h2 { font-size: .85rem; text-transform: uppercase; letter-spacing: .08em; opacity: .7; margin: 1rem 0 .4rem; }
+aside h2:first-child { margin-top: 0; }
+#log { padding-left: 1.1rem; font-size: .85rem; margin: 0; }
+.legend { display: grid; grid-template-columns: auto 1fr; gap: .3rem .6rem; font-size: .85rem; align-items: center; }
+.swatch { width: 1rem; height: 1rem; border-radius: 3px; border: 1px solid #0006; }
+
+.hex { stroke: #0007; stroke-width: 1; cursor: default; }
+.hex.open { fill: #7d8f5c; }
+.hex.rough { fill: #6b5d43; }
+.hex.fortified { fill: #8a8a8a; }
+.hex.target { fill: #d8c35a; cursor: pointer; }
+.swatch.open { background: #7d8f5c; }
+.swatch.rough { background: #6b5d43; }
+.swatch.fortified { background: #8a8a8a; }
+
+.capital { font-size: 24px; pointer-events: none; fill: #fff; stroke: #000a; stroke-width: .6; }
+
+.stack { cursor: pointer; }
+.stack .chip { stroke: #000a; stroke-width: 1; }
+.stack.owner-A .chip { fill: var(--a); }
+.stack.owner-B .chip { fill: var(--b); }
+.stack .halo { fill: none; stroke: none; }
+.stack.selected .halo { stroke: #fff; stroke-width: 2.5; }
+.stack.acted { opacity: .55; }
+.stack .count { fill: #fff; font-size: 18px; font-weight: 700; pointer-events: none; paint-order: stroke; stroke: #000a; stroke-width: 2px; }
+
+@media (max-width: 720px) {
+  body { grid-template-columns: 1fr; }
+}

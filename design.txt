@@ -1,0 +1,462 @@
+﻿DOCTRINE - DESIGN DOCUMENT
+==========================
+Status: DRAFT 0.1 - captures the initial vision plus open questions.
+Sections marked [OPEN] are undecided. Sections marked [PROPOSAL] are my
+suggestions, not yet agreed.
+
+
+1. VISION
+---------
+A web-based version of a tabletop war game set in a vaguely WW1 world.
+
+- Hex map.
+- Poker chips are units, defenses, terrain modifiers and so on.
+- Playing cards are orders, and also define each nation's capabilities and
+  doctrine.
+- 2 players as the base case, more possible.
+- No dice. Only ordinary poker chips and ordinary playing cards, so the game
+  can be prototyped physically with household items.
+- The web version is a DEVELOPMENT TOOL for the game design (fast iteration,
+  playtesting, balancing), not the final product.
+
+Core pillar: SIMPLICITY. Every rule must be explainable in a sentence and
+resolvable without a calculator. A larger stack beats a smaller stack.
+
+Second pillar: DOCTRINE. The cards you build in the early game decide what you
+are good at and which orders you can issue later. Two nations should play
+noticeably differently.
+
+
+2. DESIGN PILLARS (used to settle arguments later)
+--------------------------------------------------
+1. Physical first. If it cannot be done with chips and a normal deck, it does
+   not go in the rules (the web tool may add convenience, not rules).
+2. Few numbers. Stack strength must be readable at a glance.
+3. Doctrine is identity. Doctrine decides WHAT you can do, not just how big
+   your numbers are.
+4. Decisions over bookkeeping. Each turn offers real choices; arithmetic is
+   minimal.
+5. The war can be lost before the last chip is gone (morale / will to fight).
+
+
+3. COMPONENTS
+-------------
+Physical equivalents (also the model for the web UI):
+
+- Hex map board with terrain printed on it [OPEN: or terrain as chips/tiles?].
+- Poker chips in one colour per player = that player's men.
+- Additional chip colours/denominations for modifiers: gear, experience,
+  defenses, terrain bonuses [OPEN: exact chip vocabulary, see section 8].
+- One or more standard 52-card decks (+ jokers?) [OPEN: see section 9 - a
+  standard deck has no text, so cards must be assigned meanings].
+- Player mats: national capability area, doctrine area, reserve (unmobilized
+  men).
+
+
+4. GAME STRUCTURE - FOUR PHASES
+-------------------------------
+Buildup -> Mobilization -> War -> Peace
+
+The buildup phase happens before the war starts. Mobilization and war follow.
+Peace is triggered from inside the war phase.
+
+4.1 BUILDUP PHASE (two parts)
+
+  Part A - Nation
+  - Each player draws an initial hand of cards describing the nation's core
+    capabilities: population, economy, willingness to defend, aggressiveness,
+    colonies, and anything else that is a core value of ability to wage war.
+  - EXCLUDES military doctrine and terrain.
+  - This is the basis for the rest of the game; it is given, mostly not chosen.
+
+  Part B - Doctrine
+  - Players draw and play cards to set their doctrine: propaganda,
+    conscription/recruitment, weapons manufacturing and research, industrial
+    improvements, large permanent defenses, plus the strategy of the armed
+    forces (bonuses for attack, defense, support, multiple offensives, etc.).
+  - Doctrine cards stay in play and govern which orders can later be played.
+
+4.2 MOBILIZATION PHASE
+  - Players draw and play cards; nation + doctrine determine the outcome.
+  - Determines: how many men can be recruited, how fast they reach the front,
+    initial equipment and experience bonuses, and what the standing
+    professional army (present from the start) looks like.
+  - Output: the starting chips on the map.
+
+4.3 WAR PHASE
+  - Chips move on the hex map. Players draw and play cards depending on their
+    doctrine: offensives, building defenses, multiple simultaneous
+    offensives, reorganizations, etc.
+  - Combat: a larger stack defeats a smaller stack. Stacks are the sum of men,
+    experience, gear, terrain and defenses. Some modifiers work only on
+    defense (or only on offense).
+  - Will to fight erodes. Causes: casualties, lost battles, too few victories,
+    standstill, loss of territory.
+
+4.4 PEACE PHASE
+  - Triggered from the war phase by drawing a trigger card (e.g. a
+    "surrender resolution" card).
+  - Will to fight is calculated; one or more players may be forced to
+    surrender and drop out. Game over for them, possibly for everyone.
+  - Requirement: the trigger must NOT automatically end the war for every
+    player. Only players who are actually broken should surrender.
+    [OPEN: mechanism, see section 7]
+
+
+5. PLAYERS
+----------
+- Base game: 2 players.
+- Possible: 3+ players.
+  [OPEN: who is allied with whom, who attacks whom, whether elimination is
+  allowed to happen while others play on, turn order / simultaneous play.]
+
+
+6. COMBAT (draft)
+-----------------
+Principle: compare two stacks, the larger wins.
+
+  Strength of a stack = men + experience + gear + terrain + defenses
+  (offense-only / defense-only modifiers apply according to role)
+
+- No dice. No randomness in the resolution itself. Randomness comes from card
+  draws only (what orders and events you have).
+- [OPEN: what does the loser lose? What does the winner lose? Ties? Retreat?]
+- [OPEN: do surplus chips beyond the winning margin survive?]
+
+
+7. WILL TO FIGHT AND SURRENDER (draft)
+--------------------------------------
+Each player has a will-to-fight track (starting value from nation cards).
+Reduced by: casualties, lost battles, lost territory, standstill / no victories.
+Increased by: victories, propaganda doctrine cards, etc.
+
+Surrender is evaluated when a trigger card is drawn in the war phase.
+
+[PROPOSAL] The trigger card is evaluated PER PLAYER: only players whose will
+is at or below their threshold surrender; others carry on. That addresses
+"make sure this isn't triggered for all".
+
+
+8. CHIP VOCABULARY [OPEN]
+-------------------------
+Needs a decision. A list of candidates, in order of how much I would keep:
+
+- Men chips (player colour). Base unit. 1 chip = 1 strength.
+- Terrain modifier. Probably printed on the hex, not chips.
+- Defense chips (trenches, forts). Defense only. Placed on a hex.
+- Gear (artillery, machine guns, tanks, gas, ...).
+- Experience.
+
+Concern: four or five categories of modifier on every stack is where
+simplicity usually dies. See section 11.
+
+
+9. CARDS [OPEN]
+---------------
+Two ways to use "normal playing cards":
+
+ a) Suits/ranks carry meaning (suit = category, rank = magnitude). Very
+    physical, very abstract, a legend sheet is required.
+ b) Printed custom cards. Easy online, harder to prototype physically (but
+    paper cut-outs sleeved over normal cards work fine).
+
+Card types identified so far:
+- Nation cards (buildup A)
+- Doctrine cards (buildup B)
+- Mobilization cards
+- War/order cards (offensive, build defenses, multi-offensive, reorganize,
+  trigger/surrender, ...)
+
+How doctrine gates orders: [OPEN] - see section 11.
+
+
+10. WEB VERSION (tooling goals)
+-------------------------------
+- Hex map, chips and cards rendered in the browser; drag-and-drop optional.
+- Hot-seat first (two players on one screen / shared view), network later.
+- Rules data-driven (JSON) so cards and numbers can be changed without code.
+- Log of every game, to review balance.
+- Hosted as a static site on GitHub Pages (no backend initially).
+
+
+11. CRITICAL NOTES (my concerns so far)
+---------------------------------------
+Written to be argued with.
+
+1. "No dice" removes the uncertainty that makes wars exciting. If a bigger
+   stack always wins, the game is arithmetic and the best-resourced player
+   wins. The only variance is cards. The fun has to come from hidden
+   information (hand), timing, and bluffing about stack contents.
+   -> Consider: gear/defense chips hidden face-down until a battle (a "fog"
+   mechanic using stacked chips under a cover), or orders played face-down.
+
+2. Four phases, each with its own card play, is a lot of rules before anything
+   moves. Risk: the first 30+ minutes are drawing cards and building a
+   spreadsheet. Buildup and mobilization both "convert cards into numbers" and
+   could probably be a single phase.
+
+3. Nation cards (capability) + doctrine cards + mobilization cards = three
+   layers of cards that all say "you get more stuff". The distinction between
+   them must be crisp or they will blur.
+
+4. "Doctrine governs which cards can be played and when" is the interesting
+   part, and also the hardest to keep simple. A rule that is short and
+   physical: doctrine cards have a symbol/suit; an order card can be played
+   only if you have a doctrine card with a matching symbol in front of you.
+   One lookup, no arithmetic.
+
+5. Stack strength = sum of five categories makes counting slow and error
+   prone with physical chips. Prefer chips that already carry their strength
+   (e.g. a gear chip is just "+1" and is the same colour/value).
+
+6. Surrender: "any of 5 causes" is too many to track physically. Suggest a
+   single will-to-fight chip pile per player: lose chips for casualties/lost
+   battles/lost territory, gain them for victories. Surrender when it runs
+   out. One resource, one check.
+
+7. Surrender timing via a drawn card gives randomness, but might end the game
+   at an anticlimactic or unfair moment. Needs a safeguard (e.g. cannot be
+   triggered in the first X rounds, or is a countdown rather than instant).
+
+8. More than 2 players multiplies everything: diplomacy, kingmaking,
+   downtime, balance. I recommend designing and balancing strictly for 2
+   players first, with 3-4 as an explicit later extension.
+
+9. Hex map + stacking + movement + defense building + orders is already
+   a full game; the card layer must not add a second game on top.
+
+
+12. DECISIONS (from interview round 1)
+--------------------------------------
+D1. Uncertainty comes from ALL THREE sources: card draws, hidden information
+    (face-down orders/modifiers revealed in battle), and simultaneous order
+    selection. Caution: three sources is a lot for a 30-45 minute game. Plan
+    to prototype with one primary source (suggest hidden/simultaneous orders)
+    and treat the others as light seasoning. [OPEN: which is primary]
+
+D2. Buildup and mobilization stay SEPARATE phases because they model
+    different time scales:
+      - Buildup = years of peacetime. Slow, structural. What can be ALTERED
+        in doctrine happens here (doctrine is shaped, and mostly locked
+        afterwards).
+      - Mobilization = weeks. Fast execution. Doctrine + nation determine
+        the outcome; few decisions of their own.
+    Consequence: mobilization should be short and mostly "resolve what your
+    doctrine says", while buildup is where the real choices are. [PROPOSAL]
+    Doctrine can only be changed in buildup; later "reorganization" orders in
+    the war phase can only swap among doctrine options already held.
+
+D3. Cards: standard deck for the physical prototype; custom printed cards in
+    the web version. Rule: any web card must be expressible as suit + rank
+    (+ a legend sheet) so the physical version stays possible.
+
+D4. Doctrine gating by SYMBOL MATCHING: doctrine cards carry a symbol/suit; an
+    order card can be played only if a matching doctrine card is in play.
+    Natural fit with standard deck suits (4 suits = 4 doctrine families,
+    e.g. clubs = attrition, spades = defense, hearts = manpower/morale,
+    diamonds = industry/gear - names are placeholders).
+
+D5. Will to fight is HIDDEN and calculated only when the surrender card is
+    drawn. To keep this physical and cheap, it must be derived from visible
+    piles, not tracked live:
+      - casualty pile (men removed from the map go there; its size = losses)
+      - battles won/lost tokens
+      - territory held (count hexes / capital status)
+    The tension comes from not knowing exactly where the threshold is.
+    [OPEN: threshold per nation comes from nation cards, kept face-down?]
+
+D6. 2 players only for now. Multiplayer is a later extension.
+
+D7. Target play length: 30-45 minutes. This is tight with four phases:
+    suggested budget -> buildup <= 8 min, mobilization <= 4 min, war
+    25-30 min, peace 2 min.
+
+
+13. DECISIONS (from interview round 2)
+--------------------------------------
+D8. PRIMARY uncertainty = card draws (what orders you hold). Hidden/
+    simultaneous orders are dropped as core mechanics (may return as optional
+    variants). Alternating turns, so no simultaneous resolution is needed.
+
+D9. Chip vocabulary: three categories only.
+      - Men (player colour)
+      - Gear / experience (veteran-quality modifiers, one category)
+      - Defense: natural (terrain, printed on hex) and man-made (trenches,
+        forts - chips). Defense modifiers apply only to the defender.
+
+D10. Combat: the larger stack wins. The loser retreats; BOTH sides lose 1 chip.
+     Fast, low attrition.
+
+D11. War phase turns alternate; each player plays up to N order cards per turn
+     [OPEN: N, hand size].
+
+D12. Win condition: surrender only, driven by will to fight. No separate
+     capital/victory-point condition.
+
+D13. Surrender safeguard: each drawn surrender card checks ONLY the player who
+     drew it.
+
+
+14. TENSIONS CREATED BY THE DECISIONS (to resolve)
+--------------------------------------------------
+T1. Low attrition (D10) vs casualty-based will to fight (D5). If each battle
+    costs both sides 1 chip, the casualty pile grows slowly and equally for
+    both players, so casualties are a weak signal. Will to fight will be
+    driven mainly by territory lost, battles lost, and standstill. Either
+    drop casualties as a main input or scale them (e.g. chips lost by the
+    loser count double).
+
+T2. Surrender-only win (D12) + low attrition + alternating card turns = risk
+    of a long grind where nobody breaks. Needs a fallback: the war deck is
+    finite and the surrender card is guaranteed to appear (e.g. last card);
+    if the deck runs out, both players are checked.
+
+T3. The drawer-only check (D13) is lopsided: a winning player who draws it
+    suffers nothing, a losing player who draws it may surrender. This makes
+    the loser's draws dangerous ("hot potato"), which may be interesting but
+    needs playtesting. Possible tweak: a drawn surrender card is kept in hand
+    and can be played on either player (agency for the one who is ahead).
+
+T4. Card draws as primary uncertainty with orders gated by doctrine symbols
+    (D4): a player may hold orders they cannot play. Known source of
+    frustration. Mitigation: discard/redraw one card per turn.
+
+
+15. OPEN QUESTIONS (round 3, partially answered below)
+------------------------------------------------------
+- N (cards per turn) and hand size: see D14.
+- Map size: see D17.
+- Doctrine families / suits: see D18.
+- Terrain types, capital hexes.
+- How will-to-fight thresholds are set from nation cards (D5).
+- Reaction cards or none?
+
+
+16. DECISIONS (from interview round 3)
+--------------------------------------
+D14. Cards per turn and hand size are NOT fixed: doctrine can raise or lower
+     the number of cards played, permanently or temporarily. [OPEN: base
+     values. Proposal for the baseline: 2 cards per turn, hand of 5.]
+
+D15. Combat result (refines D10): the LOSER chooses how to pay:
+       a) Stand and hold: lose 2-3 men, no retreat.
+       b) Retreat: lose 1 man plus 1-2 gear/experience.
+     The attacker loses 1 man and gains experience/gear.
+     [OPEN: does "gains" apply to the winner of any battle, or only to a
+     winning attacker? Where does gained gear/exp come from (supply pool)?
+     Suggested: the winner, attacker or defender, gains 1 exp.]
+     This also resolves T1: casualties are now larger and a real choice.
+
+D16. Surrender cards are placed in SEVERAL places in the deck; no hard end
+     (rejects T2 proposal). Checks only the drawer (D13 confirmed, test as
+     is). Risk acknowledged: a grind is possible; revisit after playtests.
+
+D17. Unplayable cards (T4): doctrine-less GENERAL ORDERS exist that any
+     player can always play (e.g. move, hold, basic attack).
+
+D18. Order suits (tentative): aggressive action, defensive action,
+     reorganizational action, will-to-fight action.
+     NOTE: D4 says doctrine cards carry the symbol and gate orders, so these
+     four suits double as doctrine families: you can play an order of a suit
+     only if you hold a doctrine card of that suit. [OPEN: confirm.]
+     The 4th suit (willingness to fight) is the one that touches the
+     surrender mechanic (propaganda, morale, rallies) and would counter
+     surrender checks.
+
+D19. Map size: large enough to feel like a front: up to about ten stacks per
+     side. [OPEN: hex dimensions; proposal ~ 12 x 8 hexes.]
+
+
+17. NEXT STEPS
+--------------
+- Settle the [OPEN] items above, esp. D14, D15, D18 and the will-to-fight
+  thresholds (D5).
+- Draft the actual card list (nation, doctrine, general orders, suit orders).
+- Build the web prototype: hex map, chips, card hand, hot-seat, data-driven.
+
+
+18. MINIMAL PROTOTYPE SCOPE (v0) [PROPOSAL]
+-------------------------------------------
+Purpose: answer three questions as cheaply as possible.
+  Q1. Does doctrine symbol-gating make the two sides play differently?
+  Q2. Is the loser's "hold or retreat" choice interesting?
+  Q3. Does the hidden, drawer-only surrender check feel tense or random?
+Everything else is deferred.
+
+18.1 IN SCOPE
+  Setup (skips buildup and mobilization entirely):
+    - 2 players, hot-seat (one screen, "pass the device" hand cover).
+    - Map ~12 x 8 hexes, fixed layout. Terrain on hex: open (0), rough (+1
+      defender), fortified (+2 defender). Two capital hexes (territory only).
+    - 5 stacks per side, pre-placed, 3 men each.
+    - Fixed doctrine, no nation cards:
+        Player A: Aggressive + Reorganizational
+        Player B: Defensive + Willingness
+    - Each player draws a face-down surrender threshold (8-12). Hidden, from
+      "nation" standing in for the later nation cards (D5).
+
+  Chips: men, gear/exp (single +1 "veteran" chip), man-made defense (+1,
+  defender only, max 2 per hex).
+
+  Cards - one 40-card war deck, shared draw pile; hand of 5, play up to 2
+  cards per turn, draw back to 5 at end of turn:
+    General orders (no doctrine needed): Move, Hold, Basic Attack.
+    Aggressive: Offensive (+1 strength this attack), Double Offensive (two
+      stacks attack this turn).
+    Defensive: Entrench (place a defense chip), Counterattack (+1 when
+      defending, reaction-free: played on own turn only).
+    Reorganizational: Merge/Split stacks, Rally (recover 1 gear/exp).
+    Willingness: Propaganda (-3 on your break score), Martial Law (-2 on
+      break score, but lose 1 man).
+    Surrender: 3 copies shuffled through the deck. Drawn card checks only the
+      drawer (D13). Not playable; resolved immediately when drawn.
+
+  Rules:
+    - Each stack acts at most once per turn (move 1 hex or attack 1 adjacent
+      hex).
+    - Strength = men + gear/exp (+ terrain + defense chips if defending).
+    - Larger wins; tie goes to defender.
+    - Loser chooses: HOLD (lose 2 men, stays) or RETREAT (lose 1 man + 1
+      gear/exp if any, moves 1 hex back; if it cannot retreat, it must hold).
+    - Attacker loses 1 man; winner gains 1 gear/exp chip.
+    - Lost men go to the owner's casualty pile.
+    - Break score = casualty pile + 2 per battle lost + 1 per hex the player
+      started with that the enemy now holds, minus Willingness card effects.
+      A player surrenders when break score >= hidden threshold, checked
+      only when a surrender card is drawn by them.
+    - Game ends on surrender. If the draw pile runs out, reshuffle the
+      discards (no hard end, per D16).
+
+18.2 WEB IMPLEMENTATION
+  - Static site (GitHub Pages), vanilla HTML/CSS/JS with ES modules, no build
+    step. SVG hex map.
+  - Rules engine = pure functions (state in, state out) in its own module, so
+    it can be unit-tested with Node and later reused for a networked version.
+  - Cards, map and doctrine definitions in JSON, editable without code.
+  - UI enforces legal moves and highlights them (no rules lawyering).
+  - Game log of every action, exportable as JSON, plus a "new game" button
+    with an optional seed for reproducible shuffles.
+
+18.3 OUT OF SCOPE FOR v0
+  Nation cards, buildup phase, mobilization phase, peace phase beyond a
+  simple "X surrenders" screen, more than 2 players, networking/AI, undo,
+  animations, sound, saving, reaction cards, variable card-per-turn doctrine
+  effects (D14), random maps.
+
+18.4 MILESTONES
+  M1. Hex map, terrain, chips and stacks rendered; select and move stacks.
+  M2. Combat resolution with the hold/retreat choice and gear/exp gain.
+  M3. War deck, hands, doctrine gating, playing orders.
+  M4. Surrender cards, hidden thresholds, game end, hot-seat hand cover.
+  M5. Game log/export, seed, rules-engine tests.
+  Each milestone is playable on its own.
+
+18.5 SUCCESS CRITERIA (after ~5 playtests)
+  - A game finishes in 30-45 minutes.
+  - Both fixed doctrines feel different and neither always wins.
+  - Players report real decisions in combat and in which cards to play.
+  - The surrender draw is surprising but not felt as pure luck.
+  If these fail, the doc is revised before adding more rules.
+
+
+
