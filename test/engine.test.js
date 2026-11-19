@@ -1,8 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { createGame, endTurn, inBounds, legalMoves, moveStack, stackAt } from '../js/engine.js';
-import { neighbors } from '../js/hex.js';
+import {
+  attack, createGame, endTurn, inBounds, legalAttacks, legalMoves, moveStack,
+  resolveHold, resolveRetreat, retreatOptions, stackAt, strength,
+} from '../js/engine.js';
+import { distance, neighbors } from '../js/hex.js';
 
 const map = JSON.parse(readFileSync(new URL('../data/map.json', import.meta.url)));
 
@@ -57,4 +60,90 @@ test('ending the turn switches player, resets actions and counts turns', () => {
   assert.equal(state.current, 'A');
   assert.equal(state.turn, 2);
   assert.ok(legalMoves(state, 'A1').length > 0);
+});
+
+test('hex distance is 1 for every neighbor and 2 for neighbors of neighbors', () => {
+  for (const n of neighbors(3, 3)) {
+    assert.equal(distance({ col: 3, row: 3 }, n), 1);
+    for (const m of neighbors(n.col, n.row)) {
+      assert.ok(distance({ col: 3, row: 3 }, m) <= 2);
+    }
+  }
+});
+
+// Combat tests use a tiny custom map: A1 at (1,2) next to B1 at (2,2).
+function duel(a, b, terrain = {}) {
+  return createGame({
+    cols: 7,
+    rows: 5,
+    terrain,
+    capitals: { A: { col: 0, row: 0 }, B: { col: 6, row: 4 } },
+    stacks: [
+      { owner: 'A', col: 1, row: 2, men: a },
+      { owner: 'B', col: 2, row: 2, men: b },
+    ],
+  });
+}
+
+test('a lone man cannot attack', () => {
+  assert.deepEqual(legalAttacks(duel(1, 1), 'A1'), []);
+});
+
+test('ties go to the defender and terrain adds to defense strength', () => {
+  const tie = attack(duel(3, 3), 'A1', 'B1');
+  assert.equal(tie.pending.winnerId, 'B1');
+  const rough = duel(4, 3, { '2,2': 'rough' });
+  assert.equal(strength(rough, rough.stacks[1], true), 4);
+  assert.equal(attack(rough, 'A1', 'B1').pending.winnerId, 'B1');
+});
+
+test('winning attacker loses 1 man, gains gear, and advances when the defender retreats', () => {
+  let state = attack(duel(5, 3), 'A1', 'B1');
+  assert.equal(state.pending.winnerId, 'A1');
+  assert.equal(state.stacks[0].men, 4);
+  assert.equal(state.stacks[0].gear, 1);
+  const options = retreatOptions(state);
+  assert.ok(options.length > 0);
+  for (const o of options) assert.ok(distance(o, state.stacks[0]) > 1);
+  state = resolveRetreat(state, options[0].col, options[0].row);
+  const b1 = state.stacks.find((s) => s.id === 'B1');
+  assert.equal(b1.men, 2);
+  assert.deepEqual([state.stacks[0].col, state.stacks[0].row], [2, 2]);
+  assert.equal(state.pending, null);
+  assert.equal(state.battlesLost.B, 1);
+  assert.equal(state.casualties.A + state.casualties.B, 2);
+});
+
+test('holding costs 2 men and the defender keeps its hex', () => {
+  const state = resolveHold(attack(duel(5, 4), 'A1', 'B1'));
+  assert.equal(state.stacks.find((s) => s.id === 'B1').men, 2);
+  assert.deepEqual([state.stacks[0].col, state.stacks[0].row], [1, 2]);
+});
+
+test('a destroyed defender is removed and the attacker takes the hex', () => {
+  const state = resolveHold(attack(duel(6, 2), 'A1', 'B1'));
+  assert.equal(state.stacks.length, 1);
+  assert.deepEqual([state.stacks[0].col, state.stacks[0].row], [2, 2]);
+});
+
+test('a stack too small to survive a retreat must hold', () => {
+  const state = attack(duel(5, 1), 'A1', 'B1');
+  assert.deepEqual(retreatOptions(state), []);
+  assert.throws(() => resolveRetreat(state, 3, 2));
+});
+
+test('a losing attacker pays too; defender never advances', () => {
+  const state = attack(duel(2, 5), 'A1', 'B1');
+  assert.equal(state.pending.loserId, 'A1');
+  assert.equal(state.stacks[1].gear, 1);
+  const done = resolveHold(state);
+  assert.equal(done.stacks.length, 1);
+  assert.deepEqual([done.stacks[0].col, done.stacks[0].row], [2, 2]);
+});
+
+test('other actions are blocked while a battle awaits a decision', () => {
+  const state = attack(duel(5, 3), 'A1', 'B1');
+  assert.throws(() => endTurn(state));
+  assert.deepEqual(legalMoves(state, 'A1'), []);
+  assert.throws(() => attack(state, 'A1', 'B1'));
 });

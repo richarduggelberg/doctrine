@@ -12,6 +12,16 @@ export function neighbors(col, row) {
   return deltas.map(([dc, dr]) => ({ col: col + dc, row: row + dr }));
 }
 
+export function distance(a, b) {
+  const toCube = ({ col, row }) => {
+    const x = col - (row - (row & 1)) / 2;
+    return { x, y: -x - row, z: row };
+  };
+  const p = toCube(a);
+  const q = toCube(b);
+  return Math.max(Math.abs(p.x - q.x), Math.abs(p.y - q.y), Math.abs(p.z - q.z));
+}
+
 export function center(col, row, size) {
   return {
     x: size * Math.sqrt(3) * (col + 0.5 * (Math.abs(row) % 2)),

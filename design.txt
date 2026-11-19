@@ -459,4 +459,27 @@ Everything else is deferred.
   If these fail, the doc is revised before adding more rules.
 
 
+18.6 IMPLEMENTATION STATUS AND RULE DETAILS DECIDED IN CODE
+-----------------------------------------------------------
+M1 (map, chips, movement) and M2 (combat) are implemented. Details that the
+rules above left open and that were fixed in M2 (change them here and in
+js/engine.js if playtests disagree):
+  - A stack needs at least 2 men to attack (the attack itself costs 1 man).
+  - The attacker always loses 1 man; the winner of the battle gains 1 gear.
+  - Ties go to the defender. Terrain bonus: rough +1, fortified +2, defender
+    only. Defense chips arrive with the Entrench card (M3).
+  - The loser chooses: HOLD (lose 2 men, stay) or RETREAT (lose 1 man and
+    1 gear if any, move to an empty adjacent hex that is not adjacent to the
+    winner). A stack with fewer than 2 men cannot retreat and must hold.
+  - A winning attacker advances into the defender's hex if the defender
+    retreated or was destroyed. A winning defender never advances.
+  - Stacks reduced to 0 men are removed. Men lost go to the owner's casualty
+    pile; lost battles are counted per player (both feed the break score in
+    M4).
+  - Observation: because the attacker pays 1 man up front, a failed attack
+    by a 3-man stack costs 3 men (hold) or 1 man + 1 gear + 1 man (retreat).
+    Attacking is expensive; check in playtests that it is not too
+    expensive.
+
+
 

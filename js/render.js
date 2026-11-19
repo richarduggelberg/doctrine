@@ -37,17 +37,21 @@ export function renderBoard(svg, state, view) {
     const classes = ['stack', `owner-${stack.owner}`];
     if (stack.acted) classes.push('acted');
     if (stack.id === view.selectedId) classes.push('selected');
+    if (view.attackable.has(stack.id)) classes.push('attackable');
+    if (stack.id === view.loserId) classes.push('loser');
     const chips = [];
-    for (let i = 0; i < stack.men; i++) {
+    for (let i = 0; i < stack.men + stack.gear; i++) {
       const cy = y + 6 - i * CHIP_THICKNESS;
-      chips.push(`<ellipse class="chip" cx="${x}" cy="${cy}" rx="${CHIP_RADIUS}" ry="${CHIP_RADIUS * 0.55}"/>`);
+      const kind = i < stack.men ? 'chip' : 'chip gear';
+      chips.push(`<ellipse class="${kind}" cx="${x}" cy="${cy}" rx="${CHIP_RADIUS}" ry="${CHIP_RADIUS * 0.55}"/>`);
     }
-    const topY = y + 6 - (stack.men - 1) * CHIP_THICKNESS;
+    const topY = y + 6 - (stack.men + stack.gear - 1) * CHIP_THICKNESS;
+    const label = stack.gear ? `${stack.men}+${stack.gear}` : `${stack.men}`;
     parts.push(
       `<g class="${classes.join(' ')}" data-stack="${stack.id}">` +
         `<ellipse class="halo" cx="${x}" cy="${y + 6}" rx="${CHIP_RADIUS + 4}" ry="${CHIP_RADIUS * 0.55 + 4}"/>` +
         chips.join('') +
-        `<text class="count" x="${x}" y="${topY + 6}" text-anchor="middle">${stack.men}</text>` +
+        `<text class="count" x="${x}" y="${topY + 6}" text-anchor="middle">${label}</text>` +
         `</g>`,
     );
   }
