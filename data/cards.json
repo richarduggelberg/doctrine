@@ -14,11 +14,32 @@
     "thresholdMax": 12,
     "battleWeight": 2,
     "homeHexWeight": 1,
-    "capitalWeight": 3
+    "capitalWeight": 3,
+    "willingnessThreshold": 2,
+    "publicResolve": 2
   },
+  "maxLevel": 3,
   "doctrine": {
-    "A": ["aggressive", "reorganizational"],
-    "B": ["defensive", "willingness"]
+    "A": { "public": true, "cards": { "aggressive": 3, "reorganizational": 2, "defensive": 1, "willingness": 0 } },
+    "B": { "public": true, "cards": { "defensive": 3, "willingness": 2, "reorganizational": 1, "aggressive": 0 } }
+  },
+  "levels": {
+    "aggressive": {
+      "bonus": [0, 1, 2, 3],
+      "charges": [1, 2, 2, 3]
+    },
+    "defensive": {
+      "trench": [1, 2, 3, 3],
+      "posture": [1, 1, 2, 3]
+    },
+    "reorganizational": {
+      "rallyLimit": [1, 2, 3, 3],
+      "splitGear": [0, 0, 0, 1]
+    },
+    "willingness": {
+      "propaganda": [2, 3, 4, 5],
+      "martial": [3, 4, 5, 6]
+    }
   },
   "cards": [
     { "id": "move", "name": "Move", "suit": "general", "kind": "move", "count": 8,
@@ -28,26 +49,26 @@
     { "id": "hold", "name": "Hold", "suit": "general", "kind": "hold", "count": 2,
       "text": "One stack digs in: +1 defense until your next turn." },
 
-    { "id": "offensive", "name": "Offensive", "suit": "aggressive", "kind": "attack", "bonus": 1, "count": 4,
-      "text": "One stack attacks with +1 strength." },
-    { "id": "double", "name": "Double Offensive", "suit": "aggressive", "kind": "attack", "charges": 2, "count": 2,
-      "text": "Two different stacks may each attack." },
+    { "id": "offensive", "name": "Offensive", "suit": "aggressive", "kind": "attack", "bonus": "bonus", "count": 4,
+      "text": "One stack attacks with +{bonus} strength." },
+    { "id": "double", "name": "Double Offensive", "suit": "aggressive", "kind": "attack", "charges": "charges", "count": 2,
+      "text": "Up to {charges} different stacks may each attack." },
 
-    { "id": "entrench", "name": "Entrench", "suit": "defensive", "kind": "entrench", "count": 4,
-      "text": "Add a trench chip (+1 defense, max 2) to a stack's hex." },
-    { "id": "posture", "name": "Defensive Posture", "suit": "defensive", "kind": "posture", "count": 2,
-      "text": "All your stacks get +1 defense until your next turn." },
+    { "id": "entrench", "name": "Entrench", "suit": "defensive", "kind": "entrench", "limit": "trench", "count": 4,
+      "text": "Add a trench chip (+1 defense, max {limit} per hex) to a stack's hex." },
+    { "id": "posture", "name": "Defensive Posture", "suit": "defensive", "kind": "posture", "amount": "posture", "count": 2,
+      "text": "All your stacks get +{amount} defense until your next turn." },
 
     { "id": "merge", "name": "Merge", "suit": "reorganizational", "kind": "merge", "count": 2,
       "text": "Merge a stack into an adjacent friendly stack." },
-    { "id": "split", "name": "Split", "suit": "reorganizational", "kind": "split", "count": 2,
-      "text": "Send half of a stack (2+ men) to an adjacent empty hex." },
-    { "id": "rally", "name": "Rally", "suit": "reorganizational", "kind": "rally", "count": 2,
-      "text": "A stack with fewer than 2 gear gains 1 gear." },
+    { "id": "split", "name": "Split", "suit": "reorganizational", "kind": "split", "gear": "splitGear", "count": 2,
+      "text": "Send half of a stack (2+ men) to an adjacent empty hex, with up to {gear} gear." },
+    { "id": "rally", "name": "Rally", "suit": "reorganizational", "kind": "rally", "limit": "rallyLimit", "count": 2,
+      "text": "A stack with fewer than {limit} gear gains 1 gear." },
 
-    { "id": "propaganda", "name": "Propaganda", "suit": "willingness", "kind": "propaganda", "count": 2,
-      "text": "Your resolve improves: -3 on your break score." },
-    { "id": "martial", "name": "Martial Law", "suit": "willingness", "kind": "martial", "count": 1,
-      "text": "-3 on your break score, but a stack (2+ men) loses 1 man." }
+    { "id": "propaganda", "name": "Propaganda", "suit": "willingness", "kind": "propaganda", "amount": "propaganda", "count": 2,
+      "text": "Your resolve improves: -{amount} on your break score." },
+    { "id": "martial", "name": "Martial Law", "suit": "willingness", "kind": "martial", "amount": "martial", "count": 1,
+      "text": "-{amount} on your break score, but a stack (2+ men) loses 1 man." }
   ]
 }

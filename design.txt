@@ -389,11 +389,13 @@ Everything else is deferred.
     - Map ~12 x 8 hexes, fixed layout. Terrain on hex: open (0), rough (+1
       defender), fortified (+2 defender). Two capital hexes (territory only).
     - 5 stacks per side, pre-placed on the front line (see M4b), 5 men each.
-    - Fixed doctrine, no nation cards:
-        Player A: Aggressive + Reorganizational
-        Player B: Defensive + Willingness
-    - Each player draws a face-down surrender threshold (8-12). Hidden, from
-      "nation" standing in for the later nation cards (D5).
+    - Doctrine (SUPERSEDED by M5, see 18.6): a preset of 6 doctrine cards
+      whose per-suit count sets the magnitude of that suit's orders:
+        Player A: 3 Aggressive, 2 Reorganizational, 1 Defensive
+        Player B: 3 Defensive, 2 Willingness, 1 Reorganizational
+    - Each player draws a face-down surrender threshold (8-12, plus 2 per
+      Willingness card). Hidden, from "nation" standing in for the later
+      nation cards (D5).
 
   Chips: men, gear/exp (single +1 "veteran" chip), man-made defense (+1,
   defender only, max 2 per hex).
@@ -493,8 +495,7 @@ playtests disagree):
     refunded); a partly used one (Double Offensive) can be finished early.
   - A card cannot be played if no own stack could use it ("No stack can use
     this order") - e.g. attack cards with no enemy adjacent are greyed out.
-  - Doctrine: Player A = aggressive + reorganizational, Player B =
-    defensive + willingness, general cards for both (data/cards.json).
+  - Doctrine: SUPERSEDED by M5 below (no gating; suit counts set magnitude).
   - One shared 37-card deck (the 3 surrender cards arrive with M4 to make 40):
     general 16 (Move 8, Basic Attack 6, Hold 2), aggressive 6 (Offensive 4,
     Double Offensive 2), defensive 6 (Entrench 4, Defensive Posture 2),
@@ -563,6 +564,42 @@ playtests disagree):
     armies.
   - Gear/experience is a physical chip: each gear point adds a gold chip on
     top of the stack, the same colour for both players (label "men+gear").
+
+  M5 decisions - DOCTRINE AS MAGNITUDE (supersedes the M3 doctrine gating):
+  - Idea (from the designer): the doctrine is a SET OF CARDS; the number of
+    cards of each suit decides how strongly that suit's orders work. Nothing
+    is gated any more: every player can play every card.
+  - Doctrine = 6 cards (budget), dealt face up as a preset (data/cards.json
+    "doctrine"). Each suit's level = number of doctrine cards of that suit,
+    capped at 3. Level 0 is allowed and means a weak version of the order.
+    The budget forces a trade-off: more of one suit means less of another.
+    Physically: lay the 6 cards in front of you, grouped by suit.
+  - Level tables (data/cards.json "levels"), index = level 0,1,2,3:
+      Aggressive  Offensive bonus      +0 +1 +2 +3
+                  Double Offensive     1  2  2  3 attacks
+      Defensive   Entrench max/hex     1  2  3  3
+                  Defensive Posture    +1 +1 +2 +3 defense
+      Reorg.      Rally while gear <   1  2  3  3
+                  Split takes gear     0  0  0  1
+      Willingness Propaganda resolve   2  3  4  5
+                  Martial Law resolve  3  4  5  6
+    Level 1 equals the old fixed behaviour (offensive +1, trench max 2,
+    rally limit 2, propaganda 3, martial 3). General cards (Move, Basic
+    Attack, Hold) are unscaled.
+  - Willingness also raises the hidden surrender threshold by 2 per
+    Willingness doctrine card (uncapped count): a willing nation breaks
+    later. Player B (2 Willingness) draws 12-16 against A's 8-12.
+  - Visibility: a player may DECLARE the doctrine (cards face up, public)
+    for +2 starting resolve, or keep it SECRET (hidden from the opponent,
+    no bonus). Choice per player via checkboxes in the header, applied on
+    New game. Both doctrines are revealed on the end screen. (Interpretation
+    of "face up is stronger in itself, but the choice is up to the player".)
+  - Card text and the hand show the owner's level (e.g. "aggressive - L3")
+    and the real numbers, so the player sees what a card does for them.
+  - Not done yet: drafting the doctrine in the buildup phase (preset only),
+    a Reform card to move a doctrine card between suits mid-war.
+  - Balance watch: A (attack 3) vs B (defence 3, +4 threshold). B looks
+    stronger in defence and tougher to break; check in playtests.
 
 
 

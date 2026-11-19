@@ -1,5 +1,5 @@
 import {
-  applyToStack, attack, breakScore, cardIssue, createGame, discardCard, eligibleStacks, endOrder, endTurn,
+  applyToStack, attack, breakScore, cardIssue, cardText, createGame, discardCard, doctrineLevel, eligibleStacks, endOrder, endTurn,
   getStack, isDirectOrder, legalAttacks, legalMerges, legalMoves, legalSplits, mergeStacks,
   moveStack, playCard, resolveHold, resolveRetreat, retreatOptions, splitStack, strength, terrainAt,
 } from './engine.js';
@@ -50,7 +50,9 @@ async function start() {
 }
 
 function newGame() {
-  state = createGame(map, config, Math.floor(Math.random() * 2 ** 31));
+  const setup = structuredClone(config);
+  for (const p of ['A', 'B']) setup.doctrine[p].public = $(`declare-${p}`).checked;
+  state = createGame(map, setup, Math.floor(Math.random() * 2 ** 31));
   selectedId = null;
   covered = false;
   draw();
@@ -112,12 +114,20 @@ function drawInfo() {
   infoPanel.innerHTML = lines.map((line) => `<div>${line}</div>`).join('');
 }
 
+function doctrineText(owner) {
+  const { cards } = state.doctrine[owner];
+  return Object.entries(cards)
+    .map(([suit, n]) => `${config.symbols[suit]}${n}${n > state.maxLevel ? ` (L${state.maxLevel})` : ''}`)
+    .join(' ');
+}
+
 function drawStatus() {
-  const symbols = config.symbols;
-  const doctrine = state.doctrine[state.current].map((s) => `${symbols[s]} ${s}`).join(', ');
   const other = state.current === 'A' ? 'B' : 'A';
+  const own = covered && !state.over && !state.doctrine[state.current].public
+    ? 'hidden' : doctrineText(state.current);
+  const theirs = state.doctrine[other].public ? doctrineText(other) : 'secret';
   statusLine.textContent =
-    `Doctrine: ${doctrine} | Plays left: ${state.cardsPerTurn - state.played} | ` +
+    `Doctrine ${state.current}: ${own} | Doctrine ${other}: ${theirs} | Plays left: ${state.cardsPerTurn - state.played} | ` +
     `Discard: ${state.discardUsed ? 'used' : 'available'} | Deck: ${state.deck.length} | ` +
     `Player ${other} holds ${state.hands[other].length} cards | ` +
     `Break score A ${breakScore(state, 'A')}, B ${breakScore(state, 'B')} (thresholds hidden)`;
@@ -128,7 +138,8 @@ function drawOrder() {
   orderPanel.hidden = !active;
   if (!active) return;
   const def = state.defs[active.card.type];
-  const left = active.kind === 'attack' && def.charges > 1 ? ` (${active.charges} attacks left)` : '';
+  const left = active.kind === 'attack' && active.charges + active.used.length > 1
+    ? ` (${active.charges} attacks left)` : '';
   orderText.textContent = `${def.name}${left}: ${INSTRUCTIONS[active.kind]}`;
   endOrderButton.textContent = active.used.length ? 'Finish order' : 'Cancel order';
   endOrderButton.disabled = Boolean(state.pending);
@@ -156,7 +167,12 @@ function drawOver() {
   const rows = ['A', 'B']
     .map((p) => `<tr><td>Player ${p}</td><td>${over.scores[p]}</td><td>${over.thresholds[p]}</td></tr>`)
     .join('');
-  $('over-table').innerHTML = `<tr><th></th><th>Break score</th><th>Threshold</th></tr>${rows}`;
+  const doctrines = ['A', 'B']
+    .map((p) => `<tr><td>Player ${p}</td><td colspan="2">${doctrineText(p)}${state.doctrine[p].public ? ' (declared)' : ' (secret)'}</td></tr>`)
+    .join('');
+  $('over-table').innerHTML =
+    `<tr><th></th><th>Break score</th><th>Threshold</th></tr>${rows}` +
+    `<tr><th></th><th colspan="2">Doctrine</th></tr>${doctrines}`;
 }
 
 function drawHand() {
@@ -178,8 +194,9 @@ function drawHand() {
         `<button class="card suit-${def.suit}" data-uid="${card.uid}" ${issue ? 'disabled' : ''} ` +
         `title="${issue ?? 'Play this card'}">` +
         `<span class="card-name">${def.name}</span>` +
-        `<span class="card-suit">${config.symbols[def.suit]} ${def.suit}</span>` +
-        `<span class="card-text">${def.text}</span></button>` +
+        `<span class="card-suit">${config.symbols[def.suit]} ${def.suit}` +
+        `${def.suit === 'general' ? '' : ` · L${doctrineLevel(state, state.current, def.suit)}`}</span>` +
+        `<span class="card-text">${cardText(state, state.current, def)}</span></button>` +
         `<button class="discard" data-discard="${card.uid}" ${state.discardUsed || state.pending ? 'disabled' : ''}>` +
         `Discard</button></div>`
       );

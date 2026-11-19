@@ -6,13 +6,31 @@ export const PLAYERS = ['A', 'B'];
 export const TERRAIN_BONUS = { open: 0, rough: 1, fortified: 2 };
 export const MIN_ATTACKER_MEN = 2;
 export const HOLD_LOSS = 2;
-export const MAX_DEFENSE_PER_HEX = 2;
-export const RALLY_GEAR_LIMIT = 2;
 
 // Orders that apply immediately when played; all others need a stack target.
 const IMMEDIATE = new Set(['posture', 'propaganda']);
 // Orders applied by clicking a single stack.
 const DIRECT = new Set(['hold', 'entrench', 'rally', 'martial']);
+
+// A doctrine is a small set of cards; the number of cards in a suit is that suit's level.
+// Levels are capped, and level 0 is playable at a reduced effect (no dead suits).
+export function doctrineLevel(state, owner, suit) {
+  if (suit === 'general') return 0;
+  return Math.min(state.maxLevel, state.doctrine[owner].cards[suit] ?? 0);
+}
+
+// Value of a card field for its owner. A string names a table in `levels[suit]`
+// indexed by doctrine level; a number is a fixed value.
+export function cardValue(state, owner, def, field, fallback = 0) {
+  const spec = def[field];
+  if (typeof spec !== 'string') return spec ?? fallback;
+  return state.levels[def.suit][spec][doctrineLevel(state, owner, def.suit)];
+}
+
+// Card text with {field} placeholders filled in for the given owner.
+export function cardText(state, owner, def) {
+  return def.text.replace(/\{(\w+)\}/g, (_, field) => cardValue(state, owner, def, field));
+}
 
 // Seeded generator (mulberry32) so shuffles are reproducible and the engine stays pure.
 function nextRandom(state) {
@@ -95,7 +113,7 @@ export function createGame(map, config, seed = 1) {
     row: s.row,
     men: s.men,
     gear: 0,
-    braced: false,
+    braced: 0,
   }));
   const state = {
     cols: map.cols,
@@ -109,6 +127,8 @@ export function createGame(map, config, seed = 1) {
     defense: {},
     defs: Object.fromEntries(config.cards.map((c) => [c.id, c])),
     doctrine: structuredClone(config.doctrine),
+    levels: structuredClone(config.levels),
+    maxLevel: config.maxLevel,
     handSize: config.handSize,
     cardsPerTurn: config.cardsPerTurn,
     rng: seed | 0,
@@ -129,9 +149,16 @@ export function createGame(map, config, seed = 1) {
     pending: null,
     log: ['Game start. Player A moves first.'],
   };
-  const { thresholdMin, thresholdMax } = config.surrender;
+  const { thresholdMin, thresholdMax, willingnessThreshold, publicResolve } = config.surrender;
   for (const owner of PLAYERS) {
-    state.thresholds[owner] = thresholdMin + Math.floor(nextRandom(state) * (thresholdMax - thresholdMin + 1));
+    const willingness = state.doctrine[owner].cards.willingness ?? 0;
+    const base = thresholdMin + Math.floor(nextRandom(state) * (thresholdMax - thresholdMin + 1));
+    state.thresholds[owner] = base + willingnessThreshold * willingness;
+    // A declared (face-up) doctrine rallies the nation; a secret one keeps the enemy guessing.
+    if (state.doctrine[owner].public) {
+      state.resolve[owner] = publicResolve;
+      state.log.push(`Player ${owner} declares its doctrine openly (resolve +${publicResolve})`);
+    }
   }
   for (const def of config.cards) {
     for (let n = 1; n <= def.count; n++) state.deck.push({ uid: `${def.id}#${n}`, type: def.id });
@@ -164,7 +191,7 @@ export function strength(state, stack, defending) {
   if (!defending) return stack.men + stack.gear;
   const terrain = TERRAIN_BONUS[terrainAt(state, stack.col, stack.row)] ?? 0;
   const trenches = state.defense[key(stack.col, stack.row)] ?? 0;
-  return stack.men + stack.gear + terrain + trenches + (stack.braced ? 1 : 0);
+  return stack.men + stack.gear + terrain + trenches + stack.braced;
 }
 
 function adjacentStacks(state, stack, owned) {
@@ -179,18 +206,19 @@ function emptyNeighbors(state, stack) {
   );
 }
 
-// Can this stack be the subject of an order of the given kind?
-function eligible(state, kind, stack) {
-  switch (kind) {
+// Can this stack be the subject of the given order card?
+function eligible(state, def, stack) {
+  const value = (field) => cardValue(state, stack.owner, def, field);
+  switch (def.kind) {
     case 'move': return emptyNeighbors(state, stack).length > 0;
     case 'attack': return stack.men >= MIN_ATTACKER_MEN && adjacentStacks(state, stack, false).length > 0;
-    case 'hold': return !stack.braced;
-    case 'entrench': return (state.defense[key(stack.col, stack.row)] ?? 0) < MAX_DEFENSE_PER_HEX;
-    case 'rally': return stack.gear < RALLY_GEAR_LIMIT;
+    case 'hold': return stack.braced < 1;
+    case 'entrench': return (state.defense[key(stack.col, stack.row)] ?? 0) < value('limit');
+    case 'rally': return stack.gear < value('limit');
     case 'martial': return stack.men >= 2;
     case 'merge': return adjacentStacks(state, stack, true).length > 0;
     case 'split': return stack.men >= 2 && emptyNeighbors(state, stack).length > 0;
-    case 'posture': return !stack.braced;
+    case 'posture': return stack.braced < value('amount');
     case 'propaganda': return true;
     default: return false;
   }
@@ -203,11 +231,8 @@ export function cardIssue(state, card) {
   if (state.pending) return 'Resolve the battle first';
   if (state.active) return 'Finish the current order first';
   if (state.played >= state.cardsPerTurn) return 'No card plays left this turn';
-  if (def.suit !== 'general' && !state.doctrine[state.current].includes(def.suit)) {
-    return `Your doctrine does not include ${def.suit}`;
-  }
   const own = state.stacks.filter((s) => s.owner === state.current);
-  if (!own.some((s) => eligible(state, def.kind, s))) return 'No stack can use this order';
+  if (!own.some((s) => eligible(state, def, s))) return 'No stack can use this order';
   return null;
 }
 
@@ -218,21 +243,24 @@ export function playCard(state, uid) {
   if (issue) throw new Error(issue);
   const next = structuredClone(state);
   const def = next.defs[card.type];
-  next.hands[next.current] = next.hands[next.current].filter((c) => c.uid !== uid);
+  const owner = next.current;
+  const value = (field, fallback) => cardValue(next, owner, def, field, fallback);
+  next.hands[owner] = next.hands[owner].filter((c) => c.uid !== uid);
   next.played += 1;
   if (IMMEDIATE.has(def.kind)) {
+    const amount = value('amount');
     if (def.kind === 'posture') {
-      for (const s of next.stacks) if (s.owner === next.current) s.braced = true;
-      next.log.push(`${next.current} plays ${def.name}: all stacks braced`);
+      for (const s of next.stacks) if (s.owner === owner) s.braced = Math.max(s.braced, amount);
+      next.log.push(`${owner} plays ${def.name}: all stacks braced (+${amount})`);
     } else {
-      next.resolve[next.current] += 3;
-      next.log.push(`${next.current} plays ${def.name}: resolve +3`);
+      next.resolve[owner] += amount;
+      next.log.push(`${owner} plays ${def.name}: resolve +${amount}`);
     }
     next.discard.push(card);
     return next;
   }
-  next.active = { card, kind: def.kind, charges: def.charges ?? 1, bonus: def.bonus ?? 0, used: [] };
-  next.log.push(`${next.current} plays ${def.name}`);
+  next.active = { card, kind: def.kind, charges: value('charges', 1), bonus: value('bonus'), used: [] };
+  next.log.push(`${owner} plays ${def.name}`);
   return next;
 }
 
@@ -288,7 +316,7 @@ export function eligibleStacks(state) {
   const a = state.active;
   if (!a || state.pending || state.over) return [];
   return state.stacks.filter(
-    (s) => s.owner === state.current && !a.used.includes(s.id) && eligible(state, a.kind, s),
+    (s) => s.owner === state.current && !a.used.includes(s.id) && eligible(state, state.defs[a.card.type], s),
   );
 }
 
@@ -310,7 +338,7 @@ export function moveStack(state, id, col, row) {
   next.log.push(`${id} moved (${stack.col},${stack.row}) -> (${col},${row})`);
   stack.col = col;
   stack.row = row;
-  stack.braced = false;
+  stack.braced = 0;
   consume(next, id);
   return next;
 }
@@ -344,7 +372,7 @@ export function attack(state, attackerId, defenderId) {
   const winner = attackerWins ? attacker : defender;
   const loser = attackerWins ? defender : attacker;
 
-  attacker.braced = false;
+  attacker.braced = 0;
   loseMen(next, attacker, 1);
   winner.gear += 1;
   next.battlesLost[loser.owner] += 1;
@@ -420,7 +448,7 @@ export function resolveRetreat(state, col, row) {
   loser.gear -= gearLost;
   loser.col = col;
   loser.row = row;
-  loser.braced = false;
+  loser.braced = 0;
   next.log.push(`${loser.id} retreats to (${col},${row}), losing 1 man${gearLost ? ' and 1 gear' : ''}`);
   finishBattle(next);
   return next;
@@ -440,7 +468,7 @@ export function mergeStacks(state, sourceId, targetId) {
   const target = getStack(next, targetId);
   target.men += source.men;
   target.gear += source.gear;
-  target.braced = target.braced && source.braced;
+  target.braced = Math.min(target.braced, source.braced);
   next.stacks = next.stacks.filter((s) => s.id !== sourceId);
   next.log.push(`${sourceId} merges into ${targetId} (${target.men} men, ${target.gear} gear)`);
   consume(next, sourceId);
@@ -459,10 +487,13 @@ export function splitStack(state, id, col, row) {
   const next = structuredClone(state);
   const stack = getStack(next, id);
   const sent = Math.floor(stack.men / 2);
+  const def = next.defs[next.active.card.type];
+  const gearSent = Math.min(stack.gear, cardValue(next, stack.owner, def, 'gear'));
   stack.men -= sent;
+  stack.gear -= gearSent;
   const newId = `${stack.owner}${++next.idCounters[stack.owner]}`;
-  next.stacks.push({ id: newId, owner: stack.owner, col, row, men: sent, gear: 0, braced: false });
-  next.log.push(`${id} splits: ${newId} (${sent} men) at (${col},${row})`);
+  next.stacks.push({ id: newId, owner: stack.owner, col, row, men: sent, gear: gearSent, braced: 0 });
+  next.log.push(`${id} splits: ${newId} (${sent} men${gearSent ? `, ${gearSent} gear` : ''}) at (${col},${row})`);
   consume(next, id);
   return next;
 }
@@ -475,9 +506,10 @@ export function applyToStack(state, id) {
   }
   const next = structuredClone(state);
   const target = getStack(next, id);
+  const def = next.defs[next.active.card.type];
   switch (next.active.kind) {
     case 'hold':
-      target.braced = true;
+      target.braced = Math.max(target.braced, 1);
       next.log.push(`${id} digs in`);
       break;
     case 'entrench': {
@@ -490,11 +522,13 @@ export function applyToStack(state, id) {
       target.gear += 1;
       next.log.push(`${id} rallies: +1 gear`);
       break;
-    case 'martial':
+    case 'martial': {
+      const amount = cardValue(next, target.owner, def, 'amount');
       loseMen(next, target, 1);
-      next.resolve[target.owner] += 3;
-      next.log.push(`Martial law: ${id} loses 1 man, resolve +3`);
+      next.resolve[target.owner] += amount;
+      next.log.push(`Martial law: ${id} loses 1 man, resolve +${amount}`);
       break;
+    }
     default:
       throw new Error(`Unknown order ${next.active.kind}`);
   }
@@ -514,7 +548,7 @@ export function endTurn(state) {
   if (next.current === PLAYERS[0]) next.turn += 1;
   next.played = 0;
   next.discardUsed = false;
-  for (const stack of next.stacks) if (stack.owner === next.current) stack.braced = false;
+  for (const stack of next.stacks) if (stack.owner === next.current) stack.braced = 0;
   next.log.push(`Turn ${next.turn}: Player ${next.current}`);
   return next;
 }

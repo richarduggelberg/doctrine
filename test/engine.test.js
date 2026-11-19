@@ -24,6 +24,13 @@ function play(state, type) {
   return playCard(given, given.hands[given.current].at(-1).uid);
 }
 
+// Override suit counts in a player's doctrine.
+function setDoctrine(state, owner, cards) {
+  const next = structuredClone(state);
+  Object.assign(next.doctrine[owner].cards, cards);
+  return next;
+}
+
 // Tiny map: A1 at (1,2) next to B1 at (2,2).
 function duel(a, b, terrain = {}) {
   return createGame(
@@ -67,7 +74,7 @@ test('setup: 5 stacks per side, 5-card hands, and a seeded deck', () => {
   assert.equal(state.deck.length + 10, total);
   for (const p of ['A', 'B']) {
     assert.ok(state.hands[p].every((c) => c.type !== 'surrender'));
-    assert.ok(state.thresholds[p] >= 8 && state.thresholds[p] <= 12);
+    assert.ok(state.thresholds[p] >= 8);
   }
   assert.deepEqual(createGame(map, config, 42).hands, state.hands);
   assert.notDeepEqual(createGame(map, config, 43).hands, state.hands);
@@ -95,19 +102,34 @@ test('nothing can be done without playing an order card', () => {
   assert.deepEqual(legalAttacks(state, 'A1'), []);
 });
 
-test('doctrine gates suit cards; general orders are always playable', () => {
+test('every card is playable by either doctrine; the suit level sets its magnitude', () => {
   const state = duel(3, 3);
   const aOffensive = give(state, 'offensive');
   assert.equal(cardIssue(aOffensive, aOffensive.hands.A.at(-1)), null);
-  const aEntrench = give(state, 'entrench');
-  assert.match(cardIssue(aEntrench, aEntrench.hands.A.at(-1)), /doctrine/);
-  const aMove = give(state, 'move');
-  assert.equal(cardIssue(aMove, aMove.hands.A.at(-1)), null);
-  const asB = endTurn(state);
-  const bOffensive = give(asB, 'offensive');
-  assert.match(cardIssue(bOffensive, bOffensive.hands.B.at(-1)), /doctrine/);
-  const bEntrench = give(asB, 'entrench');
-  assert.equal(cardIssue(bEntrench, bEntrench.hands.B.at(-1)), null);
+  assert.equal(play(state, 'offensive').active.bonus, 3); // A: 3 aggressive cards
+  assert.equal(play(setDoctrine(state, 'A', { aggressive: 1 }), 'offensive').active.bonus, 1);
+  assert.equal(play(setDoctrine(state, 'A', { aggressive: 0 }), 'offensive').active.bonus, 0);
+  assert.equal(play(setDoctrine(state, 'A', { aggressive: 9 }), 'offensive').active.bonus, 3, 'level is capped');
+  const bOffensive = give(endTurn(state), 'offensive');
+  assert.equal(cardIssue(bOffensive, bOffensive.hands.B.at(-1)), null);
+  assert.equal(play(endTurn(state), 'offensive').active.bonus, 0); // B: no aggressive cards
+});
+
+test('doctrine sets hidden thresholds (willingness) and the declared-doctrine resolve bonus', () => {
+  const state = createGame(map, config, 11);
+  const { thresholdMin, thresholdMax, willingnessThreshold, publicResolve } = config.surrender;
+  const bonus = config.doctrine.B.cards.willingness * willingnessThreshold;
+  assert.ok(state.thresholds.A >= thresholdMin && state.thresholds.A <= thresholdMax);
+  assert.ok(state.thresholds.B >= thresholdMin + bonus && state.thresholds.B <= thresholdMax + bonus);
+  assert.deepEqual(state.resolve, { A: publicResolve, B: publicResolve });
+  const secret = structuredClone(config);
+  secret.doctrine.A.public = false;
+  assert.deepEqual(createGame(map, secret, 11).resolve, { A: 0, B: publicResolve });
+});
+
+test('a card needing an unavailable stack cannot be played', () => {
+  const lone = give(duel(1, 1), 'attack');
+  assert.match(cardIssue(lone, lone.hands.A.at(-1)), /No stack/);
 });
 
 test('a Move card moves one stack once and is then discarded', () => {
@@ -147,15 +169,15 @@ test('ties go to the defender; terrain, trenches and bracing add to defense', ()
   assert.equal(strength(rough, rough.stacks[1], true), 4);
   assert.equal(attack(play(rough, 'attack'), 'A1', 'B1').pending.winnerId, 'B1');
   const braced = structuredClone(duel(4, 3));
-  braced.stacks[1].braced = true;
+  braced.stacks[1].braced = 1;
   braced.defense['2,2'] = 2;
   assert.equal(strength(braced, braced.stacks[1], true), 6);
 });
 
-test('Offensive gives +1 to the attack; a card needing an unavailable stack cannot be played', () => {
+test('Offensive adds its doctrine bonus to the attack', () => {
   assert.equal(fight(3, 3, 'offensive').pending.winnerId, 'A1');
-  const lone = give(duel(1, 1), 'attack');
-  assert.match(cardIssue(lone, lone.hands.A.at(-1)), /No stack/);
+  const weak = attack(play(setDoctrine(duel(3, 3), 'A', { aggressive: 0 }), 'offensive'), 'A1', 'B1');
+  assert.equal(weak.pending.winnerId, 'B1'); // +0: a tie, defender wins
 });
 
 test('winning attacker loses 1 man, gains gear, and advances when the defender retreats', () => {
@@ -215,7 +237,7 @@ test('Double Offensive allows two different stacks to attack, not the same one t
     },
     config,
   );
-  let s = attack(play(state, 'double'), 'A1', 'B1');
+  let s = attack(play(setDoctrine(state, 'A', { aggressive: 2 }), 'double'), 'A1', 'B1');
   s = resolveHold(s); // B1 destroyed
   assert.equal(s.active.charges, 1);
   assert.deepEqual(legalAttacks(s, 'A1'), []);
@@ -224,26 +246,33 @@ test('Double Offensive allows two different stacks to attack, not the same one t
   assert.equal(s.active, null);
 });
 
-test('Entrench adds a trench chip up to the limit of 2 per hex', () => {
+test('Entrench adds trench chips up to the doctrine limit per hex', () => {
   let state = endTurn(duel(3, 3));
   state = applyToStack(play(state, 'entrench'), 'B1');
   assert.equal(state.defense['2,2'], 1);
-  state.defense['2,2'] = 2;
+  const limit = 3; // B has 3 defensive cards
+  state.defense['2,2'] = limit - 1;
   state.played = 0;
-  const third = give(state, 'entrench');
-  assert.match(cardIssue(third, third.hands.B.at(-1)), /No stack/);
+  const almost = give(state, 'entrench');
+  assert.equal(cardIssue(almost, almost.hands.B.at(-1)), null);
+  state.defense['2,2'] = limit;
+  const full = give(state, 'entrench');
+  assert.match(cardIssue(full, full.hands.B.at(-1)), /No stack/);
+  const lowLevel = setDoctrine(full, 'B', { defensive: 1 });
+  lowLevel.defense['2,2'] = 2;
+  assert.match(cardIssue(lowLevel, lowLevel.hands.B.at(-1)), /No stack/);
 });
 
 test('Hold braces a stack until its owner next turn; moving removes the bracing', () => {
   let state = applyToStack(play(duel(3, 3), 'hold'), 'A1');
-  assert.equal(state.stacks[0].braced, true);
+  assert.equal(state.stacks[0].braced, 1);
   state = endTurn(state);
-  assert.equal(state.stacks[0].braced, true);
+  assert.equal(state.stacks[0].braced, 1);
   state = endTurn(state);
-  assert.equal(state.stacks[0].braced, false);
+  assert.equal(state.stacks[0].braced, 0);
   const braced = applyToStack(play(duel(3, 3), 'hold'), 'A1');
   const moved = moveStack(play(braced, 'move'), 'A1', 1, 1);
-  assert.equal(moved.stacks[0].braced, false);
+  assert.equal(moved.stacks[0].braced, 0);
 });
 
 test('Merge combines stacks; Split sends half to an empty hex', () => {
@@ -272,20 +301,31 @@ test('Merge combines stacks; Split sends half to an empty hex', () => {
   assert.equal(split.stacks.find((s) => s.id === 'A1').men, 3);
   assert.equal(stackAt(split, hex.col, hex.row).men, 2);
   assert.equal(stackAt(split, hex.col, hex.row).id, 'A3');
+  assert.equal(stackAt(split, hex.col, hex.row).gear, 0);
+
+  // At level 3 a split can take one gear chip along.
+  const geared = setDoctrine(base, 'A', { reorganizational: 3 });
+  geared.stacks[0].gear = 2;
+  const armedGear = play(geared, 'split');
+  const sent = splitStack(armedGear, 'A1', hex.col, hex.row);
+  assert.equal(stackAt(sent, hex.col, hex.row).gear, 1);
+  assert.equal(sent.stacks.find((s) => s.id === 'A1').gear, 1);
 });
 
-test('Rally, Propaganda, Defensive Posture and Martial Law apply their effects', () => {
+test('Rally, Propaganda, Defensive Posture and Martial Law scale with doctrine', () => {
   let state = applyToStack(play(duel(3, 3), 'rally'), 'A1');
   assert.equal(state.stacks[0].gear, 1);
-  state = endTurn(duel(3, 3));
+  state = endTurn(duel(3, 3)); // Player B: 2 willingness cards, 3 defensive cards
+  const before = state.resolve.B;
   const propaganda = play(state, 'propaganda');
-  assert.equal(propaganda.resolve.B, 3);
+  assert.equal(propaganda.resolve.B, before + 4);
   assert.equal(propaganda.active, null);
+  assert.equal(play(setDoctrine(state, 'B', { willingness: 0 }), 'propaganda').resolve.B, before + 2);
   const posture = play(state, 'posture');
-  assert.equal(posture.stacks.find((s) => s.owner === 'B').braced, true);
+  assert.ok(posture.stacks.filter((s) => s.owner === 'B').every((s) => s.braced === 3));
   const martial = applyToStack(play(state, 'martial'), 'B1');
   assert.equal(martial.stacks.find((s) => s.id === 'B1').men, 2);
-  assert.equal(martial.resolve.B, 3);
+  assert.equal(martial.resolve.B, before + 5);
   assert.equal(martial.casualties.B, 1);
 });
 
@@ -327,6 +367,7 @@ function rigSurrender(state) {
 
 test('break score counts casualties, lost battles and lost home ground, minus resolve', () => {
   let state = duel(3, 3);
+  state.resolve.A = 0; // ignore the declared-doctrine bonus
   assert.equal(breakScore(state, 'A'), 0);
   state.casualties.A = 4;
   state.battlesLost.A = 1;
