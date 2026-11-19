@@ -1,0 +1,45 @@
+{
+  "handSize": 5,
+  "cardsPerTurn": 2,
+  "symbols": {
+    "general": "★",
+    "aggressive": "♠",
+    "defensive": "♣",
+    "reorganizational": "♦",
+    "willingness": "♥"
+  },
+  "doctrine": {
+    "A": ["aggressive", "reorganizational"],
+    "B": ["defensive", "willingness"]
+  },
+  "cards": [
+    { "id": "move", "name": "Move", "suit": "general", "kind": "move", "count": 8,
+      "text": "Move one stack to an adjacent empty hex." },
+    { "id": "attack", "name": "Basic Attack", "suit": "general", "kind": "attack", "count": 6,
+      "text": "One stack attacks an adjacent enemy stack." },
+    { "id": "hold", "name": "Hold", "suit": "general", "kind": "hold", "count": 2,
+      "text": "One stack digs in: +1 defense until your next turn." },
+
+    { "id": "offensive", "name": "Offensive", "suit": "aggressive", "kind": "attack", "bonus": 1, "count": 4,
+      "text": "One stack attacks with +1 strength." },
+    { "id": "double", "name": "Double Offensive", "suit": "aggressive", "kind": "attack", "charges": 2, "count": 2,
+      "text": "Two different stacks may each attack." },
+
+    { "id": "entrench", "name": "Entrench", "suit": "defensive", "kind": "entrench", "count": 4,
+      "text": "Add a trench chip (+1 defense, max 2) to a stack's hex." },
+    { "id": "posture", "name": "Defensive Posture", "suit": "defensive", "kind": "posture", "count": 2,
+      "text": "All your stacks get +1 defense until your next turn." },
+
+    { "id": "merge", "name": "Merge", "suit": "reorganizational", "kind": "merge", "count": 2,
+      "text": "Merge a stack into an adjacent friendly stack." },
+    { "id": "split", "name": "Split", "suit": "reorganizational", "kind": "split", "count": 2,
+      "text": "Send half of a stack (2+ men) to an adjacent empty hex." },
+    { "id": "rally", "name": "Rally", "suit": "reorganizational", "kind": "rally", "count": 2,
+      "text": "A stack with fewer than 2 gear gains 1 gear." },
+
+    { "id": "propaganda", "name": "Propaganda", "suit": "willingness", "kind": "propaganda", "count": 2,
+      "text": "Your resolve improves: -3 on your break score." },
+    { "id": "martial", "name": "Martial Law", "suit": "willingness", "kind": "martial", "count": 1,
+      "text": "-3 on your break score, but a stack (2+ men) loses 1 man." }
+  ]
+}

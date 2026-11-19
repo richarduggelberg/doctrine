@@ -1,48 +1,83 @@
 import {
-  attack, createGame, endTurn, getStack, legalAttacks, legalMoves, moveStack,
-  resolveHold, resolveRetreat, retreatOptions, strength, terrainAt,
+  applyToStack, attack, cardIssue, createGame, discardCard, eligibleStacks, endOrder, endTurn,
+  getStack, isDirectOrder, legalAttacks, legalMerges, legalMoves, legalSplits, mergeStacks,
+  moveStack, playCard, resolveHold, resolveRetreat, retreatOptions, splitStack, strength, terrainAt,
 } from './engine.js';
 import { renderBoard } from './render.js';
 
-const svg = document.getElementById('board');
-const turnLabel = document.getElementById('turn');
-const infoPanel = document.getElementById('info');
-const logList = document.getElementById('log');
-const endTurnButton = document.getElementById('end-turn');
-const newGameButton = document.getElementById('new-game');
-const decisionPanel = document.getElementById('decision');
-const decisionText = document.getElementById('decision-text');
-const holdButton = document.getElementById('hold');
+const $ = (id) => document.getElementById(id);
+const svg = $('board');
+const turnLabel = $('turn');
+const infoPanel = $('info');
+const logList = $('log');
+const endTurnButton = $('end-turn');
+const decisionPanel = $('decision');
+const decisionText = $('decision-text');
+const orderPanel = $('order');
+const orderText = $('order-text');
+const endOrderButton = $('end-order');
+const statusLine = $('status');
+const handEl = $('hand');
+const handTitle = $('hand-title');
+
+const INSTRUCTIONS = {
+  move: 'Select a highlighted stack, then an adjacent empty hex.',
+  attack: 'Select a highlighted stack, then a red-dashed adjacent enemy.',
+  merge: 'Select a highlighted stack, then a green-dashed adjacent friendly stack to merge into.',
+  split: 'Select a highlighted stack, then an empty adjacent hex to send half of it there.',
+  hold: 'Click a highlighted stack to dig it in.',
+  entrench: 'Click a highlighted stack to add a trench to its hex.',
+  rally: 'Click a highlighted stack to give it 1 gear.',
+  martial: 'Click a highlighted stack: it loses 1 man.',
+};
 
 let map;
+let config;
 let state;
 let selectedId = null;
 
 async function start() {
-  map = await (await fetch('data/map.json')).json();
+  [map, config] = await Promise.all([
+    fetch('data/map.json').then((r) => r.json()),
+    fetch('data/cards.json').then((r) => r.json()),
+  ]);
   newGame();
 }
 
 function newGame() {
-  state = createGame(map);
+  state = createGame(map, config, Math.floor(Math.random() * 2 ** 31));
   selectedId = null;
   draw();
 }
 
+function targetsFor(id) {
+  if (!id || state.pending) return { hexes: [], enemies: [], friends: [] };
+  return {
+    hexes: [...legalMoves(state, id), ...legalSplits(state, id)],
+    enemies: legalAttacks(state, id),
+    friends: legalMerges(state, id),
+  };
+}
+
 function draw() {
   const pending = state.pending;
-  const targets = pending
-    ? retreatOptions(state)
-    : selectedId ? legalMoves(state, selectedId) : [];
-  const attackable = new Set(
-    !pending && selectedId ? legalAttacks(state, selectedId).map((s) => s.id) : [],
-  );
-  renderBoard(svg, state, { selectedId, targets, attackable, loserId: pending?.loserId });
+  const t = targetsFor(selectedId);
+  renderBoard(svg, state, {
+    selectedId,
+    targets: pending ? retreatOptions(state) : t.hexes,
+    enemyTargets: new Set(t.enemies.map((s) => s.id)),
+    friendTargets: new Set(t.friends.map((s) => s.id)),
+    eligible: new Set(eligibleStacks(state).map((s) => s.id)),
+    loserId: pending?.loserId,
+  });
   turnLabel.textContent = `Turn ${state.turn} - Player ${state.current}`;
   turnLabel.className = `owner-${state.current}`;
   endTurnButton.disabled = Boolean(pending);
   drawInfo();
+  drawStatus();
+  drawOrder();
   drawDecision();
+  drawHand();
   logList.innerHTML = state.log
     .slice(-12)
     .reverse()
@@ -53,21 +88,42 @@ function draw() {
 function drawInfo() {
   const stack = selectedId && getStack(state, selectedId);
   if (!stack) {
-    infoPanel.textContent =
-      'Click one of your stacks, then a highlighted hex to move it, or a red-dashed enemy to attack it.';
+    infoPanel.textContent = 'Play a card from your hand, then use the highlighted stacks.';
     return;
   }
   const lines = [
     `${stack.id}: ${stack.men} men + ${stack.gear} gear on ${terrainAt(state, stack.col, stack.row)} ` +
-      `(${stack.col},${stack.row}). ${stack.acted ? 'Already acted.' : 'Ready.'}`,
+      `(${stack.col},${stack.row}). Defends at ${strength(state, stack, true)}.`,
   ];
   for (const target of legalAttacks(state, stack.id)) {
+    const bonus = state.active.bonus;
     lines.push(
-      `Attack ${target.id}: ${strength(state, stack, false)} vs ${strength(state, target, true)} ` +
+      `Attack ${target.id}: ${strength(state, stack, false) + bonus} vs ${strength(state, target, true)} ` +
         `(defender wins ties)`,
     );
   }
   infoPanel.innerHTML = lines.map((line) => `<div>${line}</div>`).join('');
+}
+
+function drawStatus() {
+  const symbols = config.symbols;
+  const doctrine = state.doctrine[state.current].map((s) => `${symbols[s]} ${s}`).join(', ');
+  const other = state.current === 'A' ? 'B' : 'A';
+  statusLine.textContent =
+    `Doctrine: ${doctrine} | Plays left: ${state.cardsPerTurn - state.played} | ` +
+    `Discard: ${state.discardUsed ? 'used' : 'available'} | Deck: ${state.deck.length} | ` +
+    `Player ${other} holds ${state.hands[other].length} cards`;
+}
+
+function drawOrder() {
+  const active = state.active;
+  orderPanel.hidden = !active;
+  if (!active) return;
+  const def = state.defs[active.card.type];
+  const left = active.kind === 'attack' && def.charges > 1 ? ` (${active.charges} attacks left)` : '';
+  orderText.textContent = `${def.name}${left}: ${INSTRUCTIONS[active.kind]}`;
+  endOrderButton.textContent = active.used.length ? 'Finish order' : 'Cancel order';
+  endOrderButton.disabled = Boolean(state.pending);
 }
 
 function drawDecision() {
@@ -83,17 +139,48 @@ function drawDecision() {
       : 'it cannot retreat.');
 }
 
+function drawHand() {
+  const hand = state.hands[state.current];
+  handTitle.textContent = `Player ${state.current}'s hand`;
+  handEl.innerHTML = hand
+    .map((card) => {
+      const def = state.defs[card.type];
+      const issue = cardIssue(state, card);
+      return (
+        `<div class="card-wrap">` +
+        `<button class="card suit-${def.suit}" data-uid="${card.uid}" ${issue ? 'disabled' : ''} ` +
+        `title="${issue ?? 'Play this card'}">` +
+        `<span class="card-name">${def.name}</span>` +
+        `<span class="card-suit">${config.symbols[def.suit]} ${def.suit}</span>` +
+        `<span class="card-text">${def.text}</span></button>` +
+        `<button class="discard" data-discard="${card.uid}" ${state.discardUsed || state.pending ? 'disabled' : ''}>` +
+        `Discard</button></div>`
+      );
+    })
+    .join('');
+}
+
+function attempt(action) {
+  try {
+    state = action();
+  } catch (error) {
+    state = { ...state, log: [...state.log, `Not allowed: ${error.message}`] };
+  }
+  selectedId = null;
+  draw();
+}
+
+function inList(list, col, row) {
+  return list.some((h) => h.col === col && h.row === row);
+}
+
 svg.addEventListener('click', (event) => {
   if (state.pending) {
     const hexEl = event.target.closest('[data-col]');
     if (hexEl) {
       const col = Number(hexEl.dataset.col);
       const row = Number(hexEl.dataset.row);
-      if (retreatOptions(state).some((o) => o.col === col && o.row === row)) {
-        state = resolveRetreat(state, col, row);
-        selectedId = null;
-        draw();
-      }
+      if (inList(retreatOptions(state), col, row)) attempt(() => resolveRetreat(state, col, row));
     }
     return;
   }
@@ -101,39 +188,38 @@ svg.addEventListener('click', (event) => {
   const stackEl = event.target.closest('[data-stack]');
   if (stackEl) {
     const id = stackEl.dataset.stack;
-    if (selectedId && legalAttacks(state, selectedId).some((t) => t.id === id)) {
-      state = attack(state, selectedId, id);
-      selectedId = null;
-    } else {
-      selectedId = selectedId === id ? null : id;
-    }
+    const t = targetsFor(selectedId);
+    if (t.enemies.some((s) => s.id === id)) return attempt(() => attack(state, selectedId, id));
+    if (t.friends.some((s) => s.id === id)) return attempt(() => mergeStacks(state, selectedId, id));
+    const canUse = eligibleStacks(state).some((s) => s.id === id);
+    if (canUse && isDirectOrder(state)) return attempt(() => applyToStack(state, id));
+    selectedId = selectedId === id ? null : id;
     draw();
     return;
   }
+
   const hexEl = event.target.closest('[data-col]');
   if (hexEl && selectedId) {
     const col = Number(hexEl.dataset.col);
     const row = Number(hexEl.dataset.row);
-    if (legalMoves(state, selectedId).some((m) => m.col === col && m.row === row)) {
-      state = moveStack(state, selectedId, col, row);
-    }
+    const id = selectedId;
+    if (inList(legalMoves(state, id), col, row)) return attempt(() => moveStack(state, id, col, row));
+    if (inList(legalSplits(state, id), col, row)) return attempt(() => splitStack(state, id, col, row));
   }
   selectedId = null;
   draw();
 });
 
-holdButton.addEventListener('click', () => {
-  state = resolveHold(state);
-  selectedId = null;
-  draw();
+handEl.addEventListener('click', (event) => {
+  const play = event.target.closest('[data-uid]');
+  const discard = event.target.closest('[data-discard]');
+  if (play && !play.disabled) attempt(() => playCard(state, play.dataset.uid));
+  else if (discard && !discard.disabled) attempt(() => discardCard(state, discard.dataset.discard));
 });
 
-endTurnButton.addEventListener('click', () => {
-  state = endTurn(state);
-  selectedId = null;
-  draw();
-});
-
-newGameButton.addEventListener('click', newGame);
+$('hold').addEventListener('click', () => attempt(() => resolveHold(state)));
+endOrderButton.addEventListener('click', () => attempt(() => endOrder(state)));
+endTurnButton.addEventListener('click', () => attempt(() => endTurn(state)));
+$('new-game').addEventListener('click', newGame);
 
 start();

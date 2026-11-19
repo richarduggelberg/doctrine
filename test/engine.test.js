@@ -2,103 +2,143 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
-  attack, createGame, endTurn, inBounds, legalAttacks, legalMoves, moveStack,
-  resolveHold, resolveRetreat, retreatOptions, stackAt, strength,
+  applyToStack, attack, cardIssue, createGame, discardCard, eligibleStacks, endOrder, endTurn,
+  inBounds, legalAttacks, legalMerges, legalMoves, legalSplits, mergeStacks, moveStack, playCard,
+  resolveHold, resolveRetreat, retreatOptions, splitStack, stackAt, strength,
 } from '../js/engine.js';
 import { distance, neighbors } from '../js/hex.js';
 
-const map = JSON.parse(readFileSync(new URL('../data/map.json', import.meta.url)));
+const read = (path) => JSON.parse(readFileSync(new URL(path, import.meta.url)));
+const map = read('../data/map.json');
+const config = read('../data/cards.json');
 
-test('neighbor relation is symmetric on every hex', () => {
+// Put a specific card in the current player's hand (cards are otherwise random).
+function give(state, type) {
+  const next = structuredClone(state);
+  next.hands[next.current].push({ uid: `test-${type}-${next.hands[next.current].length}`, type });
+  return next;
+}
+
+function play(state, type) {
+  const given = give(state, type);
+  return playCard(given, given.hands[given.current].at(-1).uid);
+}
+
+// Tiny map: A1 at (1,2) next to B1 at (2,2).
+function duel(a, b, terrain = {}) {
+  return createGame(
+    {
+      cols: 7,
+      rows: 5,
+      terrain,
+      capitals: { A: { col: 0, row: 0 }, B: { col: 6, row: 4 } },
+      stacks: [
+        { owner: 'A', col: 1, row: 2, men: a },
+        { owner: 'B', col: 2, row: 2, men: b },
+      ],
+    },
+    config,
+  );
+}
+
+const fight = (a, b, card = 'attack', terrain = {}) => attack(play(duel(a, b, terrain), card), 'A1', 'B1');
+
+test('neighbor relation is symmetric and distance matches adjacency', () => {
   for (let row = 0; row < 6; row++) {
     for (let col = 0; col < 6; col++) {
       for (const n of neighbors(col, row)) {
-        const back = neighbors(n.col, n.row);
-        assert.ok(back.some((b) => b.col === col && b.row === row), `${col},${row} <-> ${n.col},${n.row}`);
+        assert.ok(neighbors(n.col, n.row).some((b) => b.col === col && b.row === row));
+        assert.equal(distance({ col, row }, n), 1);
       }
     }
   }
 });
 
-test('map data places 5 stacks per side on distinct in-bounds hexes', () => {
-  const state = createGame(map);
+test('setup: 5 stacks per side, 5-card hands, and a seeded deck', () => {
+  const state = createGame(map, config, 42);
   assert.equal(state.stacks.filter((s) => s.owner === 'A').length, 5);
   assert.equal(state.stacks.filter((s) => s.owner === 'B').length, 5);
-  const seen = new Set(state.stacks.map((s) => `${s.col},${s.row}`));
-  assert.equal(seen.size, 10);
+  assert.equal(new Set(state.stacks.map((s) => `${s.col},${s.row}`)).size, 10);
   for (const s of state.stacks) assert.ok(inBounds(state, s.col, s.row));
+  assert.equal(state.hands.A.length, 5);
+  assert.equal(state.hands.B.length, 5);
+  const total = config.cards.reduce((n, c) => n + c.count, 0);
+  assert.equal(state.deck.length + 10, total);
+  assert.deepEqual(createGame(map, config, 42).hands, state.hands);
+  assert.notDeepEqual(createGame(map, config, 43).hands, state.hands);
 });
 
-test('legal moves exclude off-map and occupied hexes', () => {
-  const state = createGame(map);
-  for (const stack of state.stacks.filter((s) => s.owner === 'A')) {
-    for (const m of legalMoves(state, stack.id)) {
-      assert.ok(inBounds(state, m.col, m.row));
-      assert.equal(stackAt(state, m.col, m.row), undefined);
-    }
-  }
+test('nothing can be done without playing an order card', () => {
+  const state = createGame(map, config, 1);
+  assert.deepEqual(legalMoves(state, 'A1'), []);
+  assert.deepEqual(legalAttacks(state, 'A1'), []);
 });
 
-test('a stack moves once per turn and only for the current player', () => {
-  let state = createGame(map);
+test('doctrine gates suit cards; general orders are always playable', () => {
+  const state = duel(3, 3);
+  const aOffensive = give(state, 'offensive');
+  assert.equal(cardIssue(aOffensive, aOffensive.hands.A.at(-1)), null);
+  const aEntrench = give(state, 'entrench');
+  assert.match(cardIssue(aEntrench, aEntrench.hands.A.at(-1)), /doctrine/);
+  const aMove = give(state, 'move');
+  assert.equal(cardIssue(aMove, aMove.hands.A.at(-1)), null);
+  const asB = endTurn(state);
+  const bOffensive = give(asB, 'offensive');
+  assert.match(cardIssue(bOffensive, bOffensive.hands.B.at(-1)), /doctrine/);
+  const bEntrench = give(asB, 'entrench');
+  assert.equal(cardIssue(bEntrench, bEntrench.hands.B.at(-1)), null);
+});
+
+test('a Move card moves one stack once and is then discarded', () => {
+  let state = play(duel(3, 3), 'move');
   const [target] = legalMoves(state, 'A1');
   state = moveStack(state, 'A1', target.col, target.row);
   assert.deepEqual([state.stacks[0].col, state.stacks[0].row], [target.col, target.row]);
+  assert.equal(state.active, null);
+  assert.equal(state.played, 1);
   assert.deepEqual(legalMoves(state, 'A1'), []);
-  assert.deepEqual(legalMoves(state, 'B1'), []);
-  assert.throws(() => moveStack(state, 'A1', target.col, target.row));
+  assert.equal(state.discard.at(-1).type, 'move');
 });
 
-test('ending the turn switches player, resets actions and counts turns', () => {
-  let state = createGame(map);
-  const [target] = legalMoves(state, 'A1');
-  state = endTurn(moveStack(state, 'A1', target.col, target.row));
-  assert.equal(state.current, 'B');
-  assert.equal(state.turn, 1);
-  assert.ok(legalMoves(state, 'B1').length > 0);
-  state = endTurn(state);
-  assert.equal(state.current, 'A');
-  assert.equal(state.turn, 2);
-  assert.ok(legalMoves(state, 'A1').length > 0);
-});
-
-test('hex distance is 1 for every neighbor and 2 for neighbors of neighbors', () => {
-  for (const n of neighbors(3, 3)) {
-    assert.equal(distance({ col: 3, row: 3 }, n), 1);
-    for (const m of neighbors(n.col, n.row)) {
-      assert.ok(distance({ col: 3, row: 3 }, m) <= 2);
-    }
+test('only two cards can be played per turn', () => {
+  let state = duel(3, 3);
+  for (let i = 0; i < 2; i++) {
+    state = play(state, 'move');
+    const [target] = legalMoves(state, 'A1');
+    state = moveStack(state, 'A1', target.col, target.row);
   }
+  state = give(state, 'move');
+  assert.match(cardIssue(state, state.hands.A.at(-1)), /plays left/);
 });
 
-// Combat tests use a tiny custom map: A1 at (1,2) next to B1 at (2,2).
-function duel(a, b, terrain = {}) {
-  return createGame({
-    cols: 7,
-    rows: 5,
-    terrain,
-    capitals: { A: { col: 0, row: 0 }, B: { col: 6, row: 4 } },
-    stacks: [
-      { owner: 'A', col: 1, row: 2, men: a },
-      { owner: 'B', col: 2, row: 2, men: b },
-    ],
-  });
-}
-
-test('a lone man cannot attack', () => {
-  assert.deepEqual(legalAttacks(duel(1, 1), 'A1'), []);
+test('cancelling an unused order refunds the card and the play', () => {
+  const armed = play(duel(3, 3), 'move');
+  assert.equal(armed.played, 1);
+  const cancelled = endOrder(armed);
+  assert.equal(cancelled.played, 0);
+  assert.equal(cancelled.active, null);
+  assert.ok(cancelled.hands.A.some((c) => c.type === 'move'));
 });
 
-test('ties go to the defender and terrain adds to defense strength', () => {
-  const tie = attack(duel(3, 3), 'A1', 'B1');
-  assert.equal(tie.pending.winnerId, 'B1');
+test('ties go to the defender; terrain, trenches and bracing add to defense', () => {
+  assert.equal(fight(3, 3).pending.winnerId, 'B1');
   const rough = duel(4, 3, { '2,2': 'rough' });
   assert.equal(strength(rough, rough.stacks[1], true), 4);
-  assert.equal(attack(rough, 'A1', 'B1').pending.winnerId, 'B1');
+  assert.equal(attack(play(rough, 'attack'), 'A1', 'B1').pending.winnerId, 'B1');
+  const braced = structuredClone(duel(4, 3));
+  braced.stacks[1].braced = true;
+  braced.defense['2,2'] = 2;
+  assert.equal(strength(braced, braced.stacks[1], true), 6);
+});
+
+test('Offensive gives +1 to the attack; a card needing an unavailable stack cannot be played', () => {
+  assert.equal(fight(3, 3, 'offensive').pending.winnerId, 'A1');
+  const lone = give(duel(1, 1), 'attack');
+  assert.match(cardIssue(lone, lone.hands.A.at(-1)), /No stack/);
 });
 
 test('winning attacker loses 1 man, gains gear, and advances when the defender retreats', () => {
-  let state = attack(duel(5, 3), 'A1', 'B1');
+  let state = fight(5, 3);
   assert.equal(state.pending.winnerId, 'A1');
   assert.equal(state.stacks[0].men, 4);
   assert.equal(state.stacks[0].gear, 1);
@@ -106,44 +146,152 @@ test('winning attacker loses 1 man, gains gear, and advances when the defender r
   assert.ok(options.length > 0);
   for (const o of options) assert.ok(distance(o, state.stacks[0]) > 1);
   state = resolveRetreat(state, options[0].col, options[0].row);
-  const b1 = state.stacks.find((s) => s.id === 'B1');
-  assert.equal(b1.men, 2);
+  assert.equal(state.stacks.find((s) => s.id === 'B1').men, 2);
   assert.deepEqual([state.stacks[0].col, state.stacks[0].row], [2, 2]);
   assert.equal(state.pending, null);
   assert.equal(state.battlesLost.B, 1);
   assert.equal(state.casualties.A + state.casualties.B, 2);
 });
 
-test('holding costs 2 men and the defender keeps its hex', () => {
-  const state = resolveHold(attack(duel(5, 4), 'A1', 'B1'));
-  assert.equal(state.stacks.find((s) => s.id === 'B1').men, 2);
-  assert.deepEqual([state.stacks[0].col, state.stacks[0].row], [1, 2]);
+test('holding costs 2 men and the defender keeps its hex; destroyed stacks vanish', () => {
+  const held = resolveHold(fight(5, 4));
+  assert.equal(held.stacks.find((s) => s.id === 'B1').men, 2);
+  assert.deepEqual([held.stacks[0].col, held.stacks[0].row], [1, 2]);
+  const destroyed = resolveHold(fight(6, 2));
+  assert.equal(destroyed.stacks.length, 1);
+  assert.deepEqual([destroyed.stacks[0].col, destroyed.stacks[0].row], [2, 2]);
 });
 
-test('a destroyed defender is removed and the attacker takes the hex', () => {
-  const state = resolveHold(attack(duel(6, 2), 'A1', 'B1'));
-  assert.equal(state.stacks.length, 1);
-  assert.deepEqual([state.stacks[0].col, state.stacks[0].row], [2, 2]);
-});
-
-test('a stack too small to survive a retreat must hold', () => {
-  const state = attack(duel(5, 1), 'A1', 'B1');
-  assert.deepEqual(retreatOptions(state), []);
-  assert.throws(() => resolveRetreat(state, 3, 2));
-});
-
-test('a losing attacker pays too; defender never advances', () => {
-  const state = attack(duel(2, 5), 'A1', 'B1');
-  assert.equal(state.pending.loserId, 'A1');
-  assert.equal(state.stacks[1].gear, 1);
-  const done = resolveHold(state);
-  assert.equal(done.stacks.length, 1);
+test('a stack too small to survive a retreat must hold; a losing attacker never advances', () => {
+  const small = fight(5, 1);
+  assert.deepEqual(retreatOptions(small), []);
+  assert.throws(() => resolveRetreat(small, 3, 2));
+  const lost = fight(2, 5);
+  assert.equal(lost.pending.loserId, 'A1');
+  const done = resolveHold(lost);
   assert.deepEqual([done.stacks[0].col, done.stacks[0].row], [2, 2]);
 });
 
 test('other actions are blocked while a battle awaits a decision', () => {
-  const state = attack(duel(5, 3), 'A1', 'B1');
+  const state = fight(5, 3);
   assert.throws(() => endTurn(state));
-  assert.deepEqual(legalMoves(state, 'A1'), []);
   assert.throws(() => attack(state, 'A1', 'B1'));
+});
+
+test('Double Offensive allows two different stacks to attack, not the same one twice', () => {
+  const state = createGame(
+    {
+      cols: 7,
+      rows: 5,
+      terrain: {},
+      capitals: { A: { col: 0, row: 0 }, B: { col: 6, row: 4 } },
+      stacks: [
+        { owner: 'A', col: 1, row: 2, men: 6 },
+        { owner: 'A', col: 2, row: 3, men: 6 },
+        { owner: 'B', col: 2, row: 2, men: 2 },
+        { owner: 'B', col: 3, row: 3, men: 2 },
+      ],
+    },
+    config,
+  );
+  let s = attack(play(state, 'double'), 'A1', 'B1');
+  s = resolveHold(s); // B1 destroyed
+  assert.equal(s.active.charges, 1);
+  assert.deepEqual(legalAttacks(s, 'A1'), []);
+  assert.ok(eligibleStacks(s).every((st) => st.id !== 'A1'));
+  s = attack(s, 'A2', 'B2');
+  assert.equal(s.active, null);
+});
+
+test('Entrench adds a trench chip up to the limit of 2 per hex', () => {
+  let state = endTurn(duel(3, 3));
+  state = applyToStack(play(state, 'entrench'), 'B1');
+  assert.equal(state.defense['2,2'], 1);
+  state.defense['2,2'] = 2;
+  state.played = 0;
+  const third = give(state, 'entrench');
+  assert.match(cardIssue(third, third.hands.B.at(-1)), /No stack/);
+});
+
+test('Hold braces a stack until its owner next turn; moving removes the bracing', () => {
+  let state = applyToStack(play(duel(3, 3), 'hold'), 'A1');
+  assert.equal(state.stacks[0].braced, true);
+  state = endTurn(state);
+  assert.equal(state.stacks[0].braced, true);
+  state = endTurn(state);
+  assert.equal(state.stacks[0].braced, false);
+  const braced = applyToStack(play(duel(3, 3), 'hold'), 'A1');
+  const moved = moveStack(play(braced, 'move'), 'A1', 1, 1);
+  assert.equal(moved.stacks[0].braced, false);
+});
+
+test('Merge combines stacks; Split sends half to an empty hex', () => {
+  const base = createGame(
+    {
+      cols: 7,
+      rows: 5,
+      terrain: {},
+      capitals: { A: { col: 0, row: 0 }, B: { col: 6, row: 4 } },
+      stacks: [
+        { owner: 'A', col: 1, row: 2, men: 5 },
+        { owner: 'A', col: 2, row: 2, men: 2 },
+        { owner: 'B', col: 6, row: 2, men: 3 },
+      ],
+    },
+    config,
+  );
+  const merged = mergeStacks(play(base, 'merge'), 'A2', 'A1');
+  assert.equal(merged.stacks.find((s) => s.id === 'A1').men, 7);
+  assert.equal(merged.stacks.filter((s) => s.owner === 'A').length, 1);
+  assert.deepEqual(legalMerges(play(base, 'merge'), 'A1').map((s) => s.id), ['A2']);
+
+  const armed = play(base, 'split');
+  const [hex] = legalSplits(armed, 'A1');
+  const split = splitStack(armed, 'A1', hex.col, hex.row);
+  assert.equal(split.stacks.find((s) => s.id === 'A1').men, 3);
+  assert.equal(stackAt(split, hex.col, hex.row).men, 2);
+  assert.equal(stackAt(split, hex.col, hex.row).id, 'A3');
+});
+
+test('Rally, Propaganda, Defensive Posture and Martial Law apply their effects', () => {
+  let state = applyToStack(play(duel(3, 3), 'rally'), 'A1');
+  assert.equal(state.stacks[0].gear, 1);
+  state = endTurn(duel(3, 3));
+  const propaganda = play(state, 'propaganda');
+  assert.equal(propaganda.resolve.B, 3);
+  assert.equal(propaganda.active, null);
+  const posture = play(state, 'posture');
+  assert.equal(posture.stacks.find((s) => s.owner === 'B').braced, true);
+  const martial = applyToStack(play(state, 'martial'), 'B1');
+  assert.equal(martial.stacks.find((s) => s.id === 'B1').men, 2);
+  assert.equal(martial.resolve.B, 3);
+  assert.equal(martial.casualties.B, 1);
+});
+
+test('ending a turn refills the hand, resets plays and switches player', () => {
+  let state = createGame(map, config, 7);
+  state = discardCard(state, state.hands.A[0].uid);
+  assert.equal(state.hands.A.length, 4);
+  assert.throws(() => discardCard(state, state.hands.A[0].uid));
+  state = endTurn(state);
+  assert.equal(state.current, 'B');
+  assert.equal(state.hands.A.length, 5);
+  assert.equal(state.played, 0);
+  assert.equal(state.discardUsed, false);
+  state = endTurn(state);
+  assert.equal(state.current, 'A');
+  assert.equal(state.turn, 2);
+});
+
+test('the discard pile is reshuffled when the deck runs out', () => {
+  let state = createGame(map, config, 3);
+  const turns = 60; // each turn draws 1 card from a 27-card deck, so discards must be reshuffled
+  for (let i = 0; i < turns; i++) {
+    state = discardCard(state, state.hands[state.current][0].uid);
+    state = endTurn(state);
+  }
+  assert.equal(state.hands.A.length, 5);
+  assert.equal(state.hands.B.length, 5);
+  const all = [...state.deck, ...state.discard, ...state.hands.A, ...state.hands.B].map((c) => c.uid);
+  assert.equal(new Set(all).size, all.length);
 });

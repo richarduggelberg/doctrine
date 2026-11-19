@@ -461,13 +461,16 @@ Everything else is deferred.
 
 18.6 IMPLEMENTATION STATUS AND RULE DETAILS DECIDED IN CODE
 -----------------------------------------------------------
-M1 (map, chips, movement) and M2 (combat) are implemented. Details that the
-rules above left open and that were fixed in M2 (change them here and in
-js/engine.js if playtests disagree):
+M1 (map, chips, movement), M2 (combat) and M3 (deck, hands, doctrine gating,
+orders) are implemented. Details that the rules above left open and that were
+fixed in code (change them here, in js/engine.js and data/cards.json if
+playtests disagree):
   - A stack needs at least 2 men to attack (the attack itself costs 1 man).
   - The attacker always loses 1 man; the winner of the battle gains 1 gear.
   - Ties go to the defender. Terrain bonus: rough +1, fortified +2, defender
-    only. Defense chips arrive with the Entrench card (M3).
+    only. Trench chips (Entrench, max 2 per hex) add +1 each and stay on the
+    hex whoever holds it. A braced stack (Hold / Defensive Posture) gets +1
+    until its owner's next turn; moving, attacking or retreating removes it.
   - The loser chooses: HOLD (lose 2 men, stay) or RETREAT (lose 1 man and
     1 gear if any, move to an empty adjacent hex that is not adjacent to the
     winner). A stack with fewer than 2 men cannot retreat and must hold.
@@ -480,6 +483,41 @@ js/engine.js if playtests disagree):
     by a 3-man stack costs 3 men (hold) or 1 man + 1 gear + 1 man (retreat).
     Attacking is expensive; check in playtests that it is not too
     expensive.
+
+  M3 decisions:
+  - EVERY action costs a card play: the free per-stack move/attack of M1/M2
+    is gone. A stack may be used by several cards in one turn (limit is the
+    2 plays per turn, doctrine can change this later per D14).
+  - Playing a card "arms" an order; then the player selects the stack(s) and
+    targets. An unused armed order can be cancelled (card and play are
+    refunded); a partly used one (Double Offensive) can be finished early.
+  - A card cannot be played if no own stack could use it ("No stack can use
+    this order") - e.g. attack cards with no enemy adjacent are greyed out.
+  - Doctrine: Player A = aggressive + reorganizational, Player B =
+    defensive + willingness, general cards for both (data/cards.json).
+  - One shared 37-card deck (the 3 surrender cards arrive with M4 to make 40):
+    general 16 (Move 8, Basic Attack 6, Hold 2), aggressive 6 (Offensive 4,
+    Double Offensive 2), defensive 6 (Entrench 4, Defensive Posture 2),
+    reorganizational 6 (Merge 2, Split 2, Rally 2), willingness 3
+    (Propaganda 2, Martial Law 1).
+  - Hands refill to 5 at the end of your own turn. When the deck is empty
+    the discard pile is reshuffled (seeded RNG, reproducible).
+  - ADDED in v0 (not in the earlier rules): one free discard per turn, so a
+    hand clogged with off-doctrine cards (a shared deck guarantees these)
+    cannot deadlock a player. Redrawn at end of turn.
+  - Offensive = +1 strength on that attack. Double Offensive = two different
+    stacks may each attack once. Hold = one stack +1 defense. Defensive
+    Posture = all stacks +1 defense. Entrench = +1 trench chip on a stack's
+    hex. Merge = a stack joins an adjacent friendly stack (men and gear
+    add). Split = a stack of 2+ men sends floor(men/2) men (no gear) to an
+    adjacent empty hex. Rally = a stack with < 2 gear gains 1 gear.
+  - Propaganda = resolve +3 and Martial Law = resolve +3 plus a stack
+    (2+ men) loses 1 man (counted as a casualty, so net -2 on the break
+    score, matching the earlier "-2 with a man lost"). `resolve` is stored
+    per player and is only consumed by the break score in M4.
+  - Only the current player's hand is shown (the opponent's is a count), but
+    there is no cover between turns, so the hand is exposed when the device
+    is passed. The hot-seat hand cover is still M4.
 
 
 

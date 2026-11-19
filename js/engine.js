@@ -6,8 +6,42 @@ export const PLAYERS = ['A', 'B'];
 export const TERRAIN_BONUS = { open: 0, rough: 1, fortified: 2 };
 export const MIN_ATTACKER_MEN = 2;
 export const HOLD_LOSS = 2;
+export const MAX_DEFENSE_PER_HEX = 2;
+export const RALLY_GEAR_LIMIT = 2;
 
-export function createGame(map) {
+// Orders that apply immediately when played; all others need a stack target.
+const IMMEDIATE = new Set(['posture', 'propaganda']);
+// Orders applied by clicking a single stack.
+const DIRECT = new Set(['hold', 'entrench', 'rally', 'martial']);
+
+// Seeded generator (mulberry32) so shuffles are reproducible and the engine stays pure.
+function nextRandom(state) {
+  state.rng = (state.rng + 0x6d2b79f5) | 0;
+  let t = Math.imul(state.rng ^ (state.rng >>> 15), 1 | state.rng);
+  t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+}
+
+function shuffle(state, items) {
+  for (let i = items.length - 1; i > 0; i--) {
+    const j = Math.floor(nextRandom(state) * (i + 1));
+    [items[i], items[j]] = [items[j], items[i]];
+  }
+  return items;
+}
+
+function draw(state, owner) {
+  while (state.hands[owner].length < state.handSize) {
+    if (state.deck.length === 0) {
+      if (state.discard.length === 0) return;
+      state.deck = shuffle(state, state.discard);
+      state.discard = [];
+    }
+    state.hands[owner].push(state.deck.pop());
+  }
+}
+
+export function createGame(map, config, seed = 1) {
   const counters = { A: 0, B: 0 };
   const stacks = map.stacks.map((s) => ({
     id: `${s.owner}${++counters[s.owner]}`,
@@ -16,21 +50,41 @@ export function createGame(map) {
     row: s.row,
     men: s.men,
     gear: 0,
-    acted: false,
+    braced: false,
   }));
-  return {
+  const state = {
     cols: map.cols,
     rows: map.rows,
     terrain: { ...map.terrain },
     capitals: structuredClone(map.capitals),
     stacks,
+    idCounters: counters,
+    defense: {},
+    defs: Object.fromEntries(config.cards.map((c) => [c.id, c])),
+    doctrine: structuredClone(config.doctrine),
+    handSize: config.handSize,
+    cardsPerTurn: config.cardsPerTurn,
+    rng: seed | 0,
+    deck: [],
+    discard: [],
+    hands: { A: [], B: [] },
+    played: 0,
+    discardUsed: false,
+    active: null,
     current: PLAYERS[0],
     turn: 1,
     casualties: { A: 0, B: 0 },
     battlesLost: { A: 0, B: 0 },
+    resolve: { A: 0, B: 0 },
     pending: null,
     log: ['Game start. Player A moves first.'],
   };
+  for (const def of config.cards) {
+    for (let n = 1; n <= def.count; n++) state.deck.push({ uid: `${def.id}#${n}`, type: def.id });
+  }
+  shuffle(state, state.deck);
+  for (const owner of PLAYERS) draw(state, owner);
+  return state;
 }
 
 export function inBounds(state, col, row) {
@@ -50,20 +104,143 @@ export function getStack(state, id) {
 }
 
 export function strength(state, stack, defending) {
-  const terrain = defending ? TERRAIN_BONUS[terrainAt(state, stack.col, stack.row)] ?? 0 : 0;
-  return stack.men + stack.gear + terrain;
+  if (!defending) return stack.men + stack.gear;
+  const terrain = TERRAIN_BONUS[terrainAt(state, stack.col, stack.row)] ?? 0;
+  const trenches = state.defense[key(stack.col, stack.row)] ?? 0;
+  return stack.men + stack.gear + terrain + trenches + (stack.braced ? 1 : 0);
 }
 
-function canAct(state, stack) {
-  return Boolean(stack) && !state.pending && stack.owner === state.current && !stack.acted;
+function adjacentStacks(state, stack, owned) {
+  return neighbors(stack.col, stack.row)
+    .map((n) => stackAt(state, n.col, n.row))
+    .filter((s) => s && (s.owner === stack.owner) === owned);
+}
+
+function emptyNeighbors(state, stack) {
+  return neighbors(stack.col, stack.row).filter(
+    (n) => inBounds(state, n.col, n.row) && !stackAt(state, n.col, n.row),
+  );
+}
+
+// Can this stack be the subject of an order of the given kind?
+function eligible(state, kind, stack) {
+  switch (kind) {
+    case 'move': return emptyNeighbors(state, stack).length > 0;
+    case 'attack': return stack.men >= MIN_ATTACKER_MEN && adjacentStacks(state, stack, false).length > 0;
+    case 'hold': return !stack.braced;
+    case 'entrench': return (state.defense[key(stack.col, stack.row)] ?? 0) < MAX_DEFENSE_PER_HEX;
+    case 'rally': return stack.gear < RALLY_GEAR_LIMIT;
+    case 'martial': return stack.men >= 2;
+    case 'merge': return adjacentStacks(state, stack, true).length > 0;
+    case 'split': return stack.men >= 2 && emptyNeighbors(state, stack).length > 0;
+    case 'posture': return !stack.braced;
+    case 'propaganda': return true;
+    default: return false;
+  }
+}
+
+// Why a card cannot be played right now, or null if it can.
+export function cardIssue(state, card) {
+  const def = state.defs[card.type];
+  if (state.pending) return 'Resolve the battle first';
+  if (state.active) return 'Finish the current order first';
+  if (state.played >= state.cardsPerTurn) return 'No card plays left this turn';
+  if (def.suit !== 'general' && !state.doctrine[state.current].includes(def.suit)) {
+    return `Your doctrine does not include ${def.suit}`;
+  }
+  const own = state.stacks.filter((s) => s.owner === state.current);
+  if (!own.some((s) => eligible(state, def.kind, s))) return 'No stack can use this order';
+  return null;
+}
+
+export function playCard(state, uid) {
+  const card = state.hands[state.current].find((c) => c.uid === uid);
+  if (!card) throw new Error(`Card ${uid} is not in the current hand`);
+  const issue = cardIssue(state, card);
+  if (issue) throw new Error(issue);
+  const next = structuredClone(state);
+  const def = next.defs[card.type];
+  next.hands[next.current] = next.hands[next.current].filter((c) => c.uid !== uid);
+  next.played += 1;
+  if (IMMEDIATE.has(def.kind)) {
+    if (def.kind === 'posture') {
+      for (const s of next.stacks) if (s.owner === next.current) s.braced = true;
+      next.log.push(`${next.current} plays ${def.name}: all stacks braced`);
+    } else {
+      next.resolve[next.current] += 3;
+      next.log.push(`${next.current} plays ${def.name}: resolve +3`);
+    }
+    next.discard.push(card);
+    return next;
+  }
+  next.active = { card, kind: def.kind, charges: def.charges ?? 1, bonus: def.bonus ?? 0, used: [] };
+  next.log.push(`${next.current} plays ${def.name}`);
+  return next;
+}
+
+function finishActive(next) {
+  next.discard.push(next.active.card);
+  next.active = null;
+}
+
+function consume(next, stackId) {
+  next.active.charges -= 1;
+  next.active.used.push(stackId);
+  if (next.active.charges <= 0) finishActive(next);
+}
+
+function cancelActive(next) {
+  if (next.active.used.length === 0) {
+    next.hands[next.current].push(next.active.card);
+    next.played -= 1;
+    next.log.push(`${next.current} cancels ${next.defs[next.active.card.type].name}`);
+    next.active = null;
+  } else {
+    next.log.push(`${next.current} ends ${next.defs[next.active.card.type].name}`);
+    finishActive(next);
+  }
+}
+
+// Cancel an unused order (card returns to hand) or end a partly used one.
+export function endOrder(state) {
+  if (!state.active || state.pending) throw new Error('No order to end');
+  const next = structuredClone(state);
+  cancelActive(next);
+  return next;
+}
+
+export function discardCard(state, uid) {
+  const card = state.hands[state.current].find((c) => c.uid === uid);
+  if (!card || state.discardUsed || state.pending) throw new Error('Cannot discard');
+  const next = structuredClone(state);
+  next.hands[next.current] = next.hands[next.current].filter((c) => c.uid !== uid);
+  next.discard.push(card);
+  next.discardUsed = true;
+  next.log.push(`${next.current} discards ${next.defs[card.type].name}`);
+  return next;
+}
+
+function activeFor(state, kind, stack) {
+  const a = state.active;
+  return a && !state.pending && a.kind === kind && stack && stack.owner === state.current ? a : null;
+}
+
+// Stacks that can currently be chosen for the active order.
+export function eligibleStacks(state) {
+  const a = state.active;
+  if (!a || state.pending) return [];
+  return state.stacks.filter(
+    (s) => s.owner === state.current && !a.used.includes(s.id) && eligible(state, a.kind, s),
+  );
+}
+
+export function isDirectOrder(state) {
+  return Boolean(state.active) && DIRECT.has(state.active.kind);
 }
 
 export function legalMoves(state, id) {
   const stack = getStack(state, id);
-  if (!canAct(state, stack)) return [];
-  return neighbors(stack.col, stack.row).filter(
-    (n) => inBounds(state, n.col, n.row) && !stackAt(state, n.col, n.row),
-  );
+  return activeFor(state, 'move', stack) ? emptyNeighbors(state, stack) : [];
 }
 
 export function moveStack(state, id, col, row) {
@@ -75,17 +252,17 @@ export function moveStack(state, id, col, row) {
   next.log.push(`${id} moved (${stack.col},${stack.row}) -> (${col},${row})`);
   stack.col = col;
   stack.row = row;
-  stack.acted = true;
+  stack.braced = false;
+  consume(next, id);
   return next;
 }
 
 // Enemy stacks the given stack may attack. Attacking costs 1 man, so a lone man cannot.
 export function legalAttacks(state, id) {
   const stack = getStack(state, id);
-  if (!canAct(state, stack) || stack.men < MIN_ATTACKER_MEN) return [];
-  return neighbors(stack.col, stack.row)
-    .map((n) => stackAt(state, n.col, n.row))
-    .filter((target) => target && target.owner !== stack.owner);
+  const a = activeFor(state, 'attack', stack);
+  if (!a || a.used.includes(id) || stack.men < MIN_ATTACKER_MEN) return [];
+  return adjacentStacks(state, stack, false);
 }
 
 function loseMen(state, stack, count) {
@@ -102,13 +279,14 @@ export function attack(state, attackerId, defenderId) {
   const next = structuredClone(state);
   const attacker = getStack(next, attackerId);
   const defender = getStack(next, defenderId);
-  const attackStrength = strength(next, attacker, false);
+  const bonus = next.active.bonus;
+  const attackStrength = strength(next, attacker, false) + bonus;
   const defenseStrength = strength(next, defender, true);
   const attackerWins = attackStrength > defenseStrength; // ties go to the defender
   const winner = attackerWins ? attacker : defender;
   const loser = attackerWins ? defender : attacker;
 
-  attacker.acted = true;
+  attacker.braced = false;
   loseMen(next, attacker, 1);
   winner.gear += 1;
   next.battlesLost[loser.owner] += 1;
@@ -124,6 +302,7 @@ export function attack(state, attackerId, defenderId) {
     `${attackerId} (${attackStrength}) attacks ${defenderId} (${defenseStrength}): ${winner.id} wins. ` +
       `${loser.id} must hold or retreat.`,
   );
+  consume(next, attackerId);
   return next;
 }
 
@@ -133,12 +312,7 @@ export function retreatOptions(state) {
   const loser = getStack(state, pending.loserId);
   const winner = getStack(state, pending.winnerId);
   if (loser.men < 2) return []; // a retreat costs a man, which would destroy it
-  return neighbors(loser.col, loser.row).filter(
-    (n) =>
-      inBounds(state, n.col, n.row) &&
-      !stackAt(state, n.col, n.row) &&
-      distance(n, winner) > 1,
-  );
+  return emptyNeighbors(state, loser).filter((n) => distance(n, winner) > 1);
 }
 
 function finishBattle(next) {
@@ -185,18 +359,99 @@ export function resolveRetreat(state, col, row) {
   loser.gear -= gearLost;
   loser.col = col;
   loser.row = row;
+  loser.braced = false;
   next.log.push(`${loser.id} retreats to (${col},${row}), losing 1 man${gearLost ? ' and 1 gear' : ''}`);
   finishBattle(next);
+  return next;
+}
+
+export function legalMerges(state, id) {
+  const stack = getStack(state, id);
+  return activeFor(state, 'merge', stack) ? adjacentStacks(state, stack, true) : [];
+}
+
+export function mergeStacks(state, sourceId, targetId) {
+  if (!legalMerges(state, sourceId).some((s) => s.id === targetId)) {
+    throw new Error(`Illegal merge ${sourceId} -> ${targetId}`);
+  }
+  const next = structuredClone(state);
+  const source = getStack(next, sourceId);
+  const target = getStack(next, targetId);
+  target.men += source.men;
+  target.gear += source.gear;
+  target.braced = target.braced && source.braced;
+  next.stacks = next.stacks.filter((s) => s.id !== sourceId);
+  next.log.push(`${sourceId} merges into ${targetId} (${target.men} men, ${target.gear} gear)`);
+  consume(next, sourceId);
+  return next;
+}
+
+export function legalSplits(state, id) {
+  const stack = getStack(state, id);
+  return activeFor(state, 'split', stack) && stack.men >= 2 ? emptyNeighbors(state, stack) : [];
+}
+
+export function splitStack(state, id, col, row) {
+  if (!legalSplits(state, id).some((h) => h.col === col && h.row === row)) {
+    throw new Error(`Illegal split of ${id} to ${col},${row}`);
+  }
+  const next = structuredClone(state);
+  const stack = getStack(next, id);
+  const sent = Math.floor(stack.men / 2);
+  stack.men -= sent;
+  const newId = `${stack.owner}${++next.idCounters[stack.owner]}`;
+  next.stacks.push({ id: newId, owner: stack.owner, col, row, men: sent, gear: 0, braced: false });
+  next.log.push(`${id} splits: ${newId} (${sent} men) at (${col},${row})`);
+  consume(next, id);
+  return next;
+}
+
+// Applies a single-stack order (hold, entrench, rally, martial law) to the chosen stack.
+export function applyToStack(state, id) {
+  const stack = getStack(state, id);
+  if (!isDirectOrder(state) || !eligibleStacks(state).some((s) => s.id === id) || !stack) {
+    throw new Error(`Order cannot target ${id}`);
+  }
+  const next = structuredClone(state);
+  const target = getStack(next, id);
+  switch (next.active.kind) {
+    case 'hold':
+      target.braced = true;
+      next.log.push(`${id} digs in`);
+      break;
+    case 'entrench': {
+      const k = key(target.col, target.row);
+      next.defense[k] = (next.defense[k] ?? 0) + 1;
+      next.log.push(`Trench built at (${target.col},${target.row})`);
+      break;
+    }
+    case 'rally':
+      target.gear += 1;
+      next.log.push(`${id} rallies: +1 gear`);
+      break;
+    case 'martial':
+      loseMen(next, target, 1);
+      next.resolve[target.owner] += 3;
+      next.log.push(`Martial law: ${id} loses 1 man, resolve +3`);
+      break;
+    default:
+      throw new Error(`Unknown order ${next.active.kind}`);
+  }
+  consume(next, id);
   return next;
 }
 
 export function endTurn(state) {
   if (state.pending) throw new Error('Resolve the battle first');
   const next = structuredClone(state);
+  if (next.active) cancelActive(next);
+  draw(next, next.current);
   const index = PLAYERS.indexOf(next.current);
   next.current = PLAYERS[(index + 1) % PLAYERS.length];
   if (next.current === PLAYERS[0]) next.turn += 1;
-  for (const stack of next.stacks) stack.acted = false;
+  next.played = 0;
+  next.discardUsed = false;
+  for (const stack of next.stacks) if (stack.owner === next.current) stack.braced = false;
   next.log.push(`Turn ${next.turn}: Player ${next.current}`);
   return next;
 }

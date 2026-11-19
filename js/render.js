@@ -30,14 +30,27 @@ export function renderBoard(svg, state, view) {
     parts.push(`<text class="capital owner-${owner}" x="${x}" y="${y + SIZE * 0.86}" text-anchor="middle">★</text>`);
   }
 
+  // Trench chips sit on the hex itself, whoever occupies it.
+  for (const [hexKey, count] of Object.entries(state.defense)) {
+    const [col, row] = hexKey.split(',').map(Number);
+    const { x, y } = center(col, row, SIZE);
+    for (let i = 0; i < count; i++) {
+      parts.push(
+        `<rect class="trench" x="${x - 30 + i * 11}" y="${y + 14}" width="9" height="9" rx="2"/>`,
+      );
+    }
+  }
+
   // Draw back-to-front so lower rows overlap higher ones.
   const ordered = [...state.stacks].sort((a, b) => a.row - b.row);
   for (const stack of ordered) {
     const { x, y } = center(stack.col, stack.row, SIZE);
     const classes = ['stack', `owner-${stack.owner}`];
-    if (stack.acted) classes.push('acted');
+    if (stack.braced) classes.push('braced');
+    if (view.eligible.has(stack.id)) classes.push('eligible');
     if (stack.id === view.selectedId) classes.push('selected');
-    if (view.attackable.has(stack.id)) classes.push('attackable');
+    if (view.enemyTargets.has(stack.id)) classes.push('attackable');
+    if (view.friendTargets.has(stack.id)) classes.push('mergeable');
     if (stack.id === view.loserId) classes.push('loser');
     const chips = [];
     for (let i = 0; i < stack.men + stack.gear; i++) {
