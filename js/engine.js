@@ -30,14 +30,19 @@ function shuffle(state, items) {
   return items;
 }
 
+export function territoryOf(state, col) {
+  return col <= state.borderCol ? PLAYERS[0] : PLAYERS[1];
+}
+
 // Break score: how close a nation is to giving up. Public information (casualties,
 // lost battles, lost home ground); only the threshold it is compared with is hidden.
 export function breakScore(state, owner) {
   const s = state.surrender;
   let score = state.casualties[owner] + s.battleWeight * state.battlesLost[owner];
-  for (const home of state.home[owner]) {
-    const holder = stackAt(state, home.col, home.row);
-    if (holder && holder.owner !== owner) score += home.capital ? s.capitalWeight : s.homeHexWeight;
+  for (const stack of state.stacks) {
+    if (stack.owner === owner || territoryOf(state, stack.col) !== owner) continue;
+    const cap = state.capitals[owner];
+    score += stack.col === cap.col && stack.row === cap.row ? s.capitalWeight : s.homeHexWeight;
   }
   return Math.max(0, score - state.resolve[owner]);
 }
@@ -95,6 +100,8 @@ export function createGame(map, config, seed = 1) {
   const state = {
     cols: map.cols,
     rows: map.rows,
+    // Columns up to borderCol are Player A's territory, the rest Player B's.
+    borderCol: map.borderCol ?? Math.floor(map.cols / 2) - 1,
     terrain: { ...map.terrain },
     capitals: structuredClone(map.capitals),
     stacks,
@@ -117,17 +124,6 @@ export function createGame(map, config, seed = 1) {
     battlesLost: { A: 0, B: 0 },
     resolve: { A: 0, B: 0 },
     surrender: { ...config.surrender },
-    home: Object.fromEntries(
-      PLAYERS.map((p) => {
-        const hexes = new Map();
-        for (const s of map.stacks.filter((st) => st.owner === p)) {
-          hexes.set(key(s.col, s.row), { col: s.col, row: s.row, capital: false });
-        }
-        const cap = map.capitals[p];
-        hexes.set(key(cap.col, cap.row), { col: cap.col, row: cap.row, capital: true });
-        return [p, [...hexes.values()]];
-      }),
-    ),
     thresholds: {},
     over: null,
     pending: null,

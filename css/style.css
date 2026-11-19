@@ -69,7 +69,14 @@ aside h2:first-child { margin-top: 0; }
 .stack.mergeable .halo { stroke: #34c759; stroke-width: 3; stroke-dasharray: 5 3; }
 .trench { fill: #3b3b3b; stroke: #111; stroke-width: 1; pointer-events: none; }
 .stack.loser .halo { stroke: #ffd60a; stroke-width: 3; }
-.stack .chip.gear { fill: #d4af37; }
+.stack .chip.gear { fill: #d4af37; stroke: #5c4400; }
+.tint { pointer-events: none; }
+.tint-A { fill: #e0402e; fill-opacity: .13; }
+.tint-B { fill: #3a82e0; fill-opacity: .13; }
+.border { stroke: #f2efe3; stroke-width: 3; stroke-linecap: round; stroke-dasharray: 2 6; pointer-events: none; }
+.swatch.terr-A { background: #c0392b; }
+.swatch.terr-B { background: #2e6fbf; }
+.swatch.gear { background: #d4af37; border-radius: 50%; }
 #decision { background: #3a2f12; border: 1px solid #d4af37; border-radius: 4px; padding: .6rem; margin-top: 1rem; font-size: .9rem; }
 #decision[hidden] { display: none; }
 #decision p { margin: 0 0 .5rem; }

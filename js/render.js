@@ -1,9 +1,9 @@
-import { center, corners, key } from './hex.js';
-import { terrainAt } from './engine.js';
+import { center, corners, edgeSegments, key } from './hex.js';
+import { terrainAt, territoryOf } from './engine.js';
 
 const SIZE = 36;
 const CHIP_RADIUS = 21;
-const CHIP_THICKNESS = 5;
+const CHIP_THICKNESS = 4;
 
 export function renderBoard(svg, state, view) {
   const width = SIZE * Math.sqrt(3) * (state.cols + 0.5) + SIZE;
@@ -12,6 +12,7 @@ export function renderBoard(svg, state, view) {
 
   const targets = new Set(view.targets.map((t) => key(t.col, t.row)));
   const parts = [];
+  const border = [];
 
   for (let row = 0; row < state.rows; row++) {
     for (let col = 0; col < state.cols; col++) {
@@ -19,11 +20,17 @@ export function renderBoard(svg, state, view) {
       const terrain = terrainAt(state, col, row);
       const classes = ['hex', terrain];
       if (targets.has(key(col, row))) classes.push('target');
-      parts.push(
-        `<polygon class="${classes.join(' ')}" data-col="${col}" data-row="${row}" points="${corners(x, y, SIZE - 1)}"/>`,
-      );
+      const points = corners(x, y, SIZE - 1);
+      parts.push(`<polygon class="${classes.join(' ')}" data-col="${col}" data-row="${row}" points="${points}"/>`);
+      parts.push(`<polygon class="tint tint-${territoryOf(state, col)}" points="${points}"/>`);
+      const home = territoryOf(state, col);
+      const crossing = edgeSegments(col, row, SIZE, (c, r) => c >= 0 && c < state.cols && territoryOf(state, c) !== home);
+      for (const [p, q] of crossing) {
+        border.push(`<line class="border" x1="${p.x.toFixed(1)}" y1="${p.y.toFixed(1)}" x2="${q.x.toFixed(1)}" y2="${q.y.toFixed(1)}"/>`);
+      }
     }
   }
+  parts.push(...border);
 
   for (const [owner, cap] of Object.entries(state.capitals)) {
     const { x, y } = center(cap.col, cap.row, SIZE);

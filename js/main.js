@@ -43,8 +43,8 @@ let covered = false;
 
 async function start() {
   [map, config] = await Promise.all([
-    fetch('data/map.json').then((r) => r.json()),
-    fetch('data/cards.json').then((r) => r.json()),
+    fetch('data/map.json', { cache: 'no-store' }).then((r) => r.json()),
+    fetch('data/cards.json', { cache: 'no-store' }).then((r) => r.json()),
   ]);
   newGame();
 }

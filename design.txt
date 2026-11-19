@@ -388,7 +388,7 @@ Everything else is deferred.
     - 2 players, hot-seat (one screen, "pass the device" hand cover).
     - Map ~12 x 8 hexes, fixed layout. Terrain on hex: open (0), rough (+1
       defender), fortified (+2 defender). Two capital hexes (territory only).
-    - 5 stacks per side, pre-placed, 3 men each.
+    - 5 stacks per side, pre-placed on the front line (see M4b), 5 men each.
     - Fixed doctrine, no nation cards:
         Player A: Aggressive + Reorganizational
         Player B: Defensive + Willingness
@@ -526,10 +526,10 @@ playtests disagree):
   - Only the DRAWER is checked (D13): they surrender if
     break score >= their hidden threshold. If not, the log says "the nation
     holds firm" - which tells the opponent the threshold is above the score.
-  - Break score = casualties + 2 per battle lost + 1 per home hex held by an
-    enemy stack (3 for the capital) - resolve (never below 0). Home hexes =
-    the player's starting stack hexes plus their capital. "Held" = an enemy
-    stack is standing on it (no zones of control). All weights are in
+  - Break score = casualties + 2 per battle lost + 1 per enemy stack standing
+    in the player's territory (3 if on their capital) - resolve (never below
+    0). Territory = the player's half of the map (see M4b). "Held" = an
+    enemy stack is standing on it (no zones of control). All weights are in
     data/cards.json under "surrender".
   - Thresholds: each player gets a random 8-12 from the seeded RNG, stored
     in the game state and not shown until the game ends. The break scores
@@ -546,6 +546,23 @@ playtests disagree):
     4-5 turns, alternating between the players at random. If games drag, add
     copies or lower thresholds; if a break feels like pure luck, narrow the
     threshold range.
+
+  M4b decisions (setting and layout):
+  - Territory is shown from the start: columns 0-5 are Player A's (red tint),
+    columns 6-11 Player B's (blue tint), with a dashed line along the border.
+    Set by "borderCol" in data/map.json. Territory does not change hands
+    when occupied; an enemy stack standing in it simply counts for the break
+    score. (Idea for later: occupation flips ownership, ties into peace.)
+  - All 5 stacks per side start on the front line, one hex inside their own
+    territory (A on column 4, B on column 7), leaving two empty hexes between
+    the armies so nobody can attack on turn 1. Capitals are at the back.
+    Terrain is symmetric under a 180-degree rotation of the map, so both
+    sides get equal ground.
+  - Stacks start at 5 men (was 3). Strength 5 vs the 8-12 break thresholds:
+    watch in playtests whether the thresholds should rise with the bigger
+    armies.
+  - Gear/experience is a physical chip: each gear point adds a gold chip on
+    top of the stack, the same colour for both players (label "men+gear").
 
 
 

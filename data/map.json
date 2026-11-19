@@ -1,10 +1,10 @@
 {
   "cols": 12,
   "rows": 8,
+  "borderCol": 5,
   "terrain": {
-    "3,0": "rough", "4,1": "rough", "5,1": "rough", "5,2": "rough",
-    "4,4": "rough", "7,3": "rough", "6,5": "rough", "6,6": "rough",
-    "8,6": "rough", "7,7": "rough",
+    "5,1": "rough", "5,6": "rough", "3,2": "rough", "3,5": "rough", "4,3": "rough",
+    "6,6": "rough", "6,1": "rough", "8,5": "rough", "8,2": "rough", "7,4": "rough",
     "5,4": "fortified", "6,3": "fortified"
   },
   "capitals": {
@@ -12,15 +12,15 @@
     "B": { "col": 11, "row": 4 }
   },
   "stacks": [
-    { "owner": "A", "col": 1, "row": 1, "men": 3 },
-    { "owner": "A", "col": 1, "row": 3, "men": 3 },
-    { "owner": "A", "col": 1, "row": 5, "men": 3 },
-    { "owner": "A", "col": 2, "row": 2, "men": 3 },
-    { "owner": "A", "col": 2, "row": 6, "men": 3 },
-    { "owner": "B", "col": 10, "row": 6, "men": 3 },
-    { "owner": "B", "col": 10, "row": 4, "men": 3 },
-    { "owner": "B", "col": 10, "row": 2, "men": 3 },
-    { "owner": "B", "col": 9, "row": 5, "men": 3 },
-    { "owner": "B", "col": 9, "row": 1, "men": 3 }
+    { "owner": "A", "col": 4, "row": 0, "men": 5 },
+    { "owner": "A", "col": 4, "row": 2, "men": 5 },
+    { "owner": "A", "col": 4, "row": 4, "men": 5 },
+    { "owner": "A", "col": 4, "row": 5, "men": 5 },
+    { "owner": "A", "col": 4, "row": 7, "men": 5 },
+    { "owner": "B", "col": 7, "row": 7, "men": 5 },
+    { "owner": "B", "col": 7, "row": 5, "men": 5 },
+    { "owner": "B", "col": 7, "row": 3, "men": 5 },
+    { "owner": "B", "col": 7, "row": 2, "men": 5 },
+    { "owner": "B", "col": 7, "row": 0, "men": 5 }
   ]
 }

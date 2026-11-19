@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import {
   applyToStack, attack, breakScore, cardIssue, createGame, discardCard, eligibleStacks, endOrder, endTurn,
   inBounds, legalAttacks, legalMerges, legalMoves, legalSplits, mergeStacks, moveStack, playCard,
-  resolveHold, resolveRetreat, retreatOptions, splitStack, stackAt, strength,
+  resolveHold, resolveRetreat, retreatOptions, splitStack, stackAt, strength, territoryOf,
 } from '../js/engine.js';
 import { distance, neighbors } from '../js/hex.js';
 
@@ -30,6 +30,7 @@ function duel(a, b, terrain = {}) {
     {
       cols: 7,
       rows: 5,
+      borderCol: 1,
       terrain,
       capitals: { A: { col: 0, row: 0 }, B: { col: 6, row: 4 } },
       stacks: [
@@ -70,6 +71,22 @@ test('setup: 5 stacks per side, 5-card hands, and a seeded deck', () => {
   }
   assert.deepEqual(createGame(map, config, 42).hands, state.hands);
   assert.notDeepEqual(createGame(map, config, 43).hands, state.hands);
+});
+
+test('armies start in their own territory on the front line, out of contact', () => {
+  const state = createGame(map, config, 1);
+  for (const s of state.stacks) {
+    assert.equal(territoryOf(state, s.col), s.owner);
+    assert.ok(Math.abs(s.col - state.borderCol - 0.5) <= 1.5, `${s.id} is on the front line`);
+    assert.equal(s.men, 5);
+  }
+  const gap = Math.min(
+    ...state.stacks.filter((s) => s.owner === 'A').flatMap((a) =>
+      state.stacks.filter((s) => s.owner === 'B').map((b) => distance(a, b))),
+  );
+  assert.ok(gap >= 2, 'no stacks adjacent at the start');
+  assert.equal(territoryOf(state, state.capitals.A.col), 'A');
+  assert.equal(territoryOf(state, state.capitals.B.col), 'B');
 });
 
 test('nothing can be done without playing an order card', () => {
