@@ -8,6 +8,14 @@
     "reorganizational": "♦",
     "willingness": "♥"
   },
+  "surrender": {
+    "count": 3,
+    "thresholdMin": 8,
+    "thresholdMax": 12,
+    "battleWeight": 2,
+    "homeHexWeight": 1,
+    "capitalWeight": 3
+  },
   "doctrine": {
     "A": ["aggressive", "reorganizational"],
     "B": ["defensive", "willingness"]

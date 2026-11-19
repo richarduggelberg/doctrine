@@ -1,5 +1,5 @@
 import {
-  applyToStack, attack, cardIssue, createGame, discardCard, eligibleStacks, endOrder, endTurn,
+  applyToStack, attack, breakScore, cardIssue, createGame, discardCard, eligibleStacks, endOrder, endTurn,
   getStack, isDirectOrder, legalAttacks, legalMerges, legalMoves, legalSplits, mergeStacks,
   moveStack, playCard, resolveHold, resolveRetreat, retreatOptions, splitStack, strength, terrainAt,
 } from './engine.js';
@@ -19,6 +19,9 @@ const endOrderButton = $('end-order');
 const statusLine = $('status');
 const handEl = $('hand');
 const handTitle = $('hand-title');
+const coverPanel = $('cover');
+const coverText = $('cover-text');
+const overPanel = $('over');
 
 const INSTRUCTIONS = {
   move: 'Select a highlighted stack, then an adjacent empty hex.',
@@ -35,6 +38,8 @@ let map;
 let config;
 let state;
 let selectedId = null;
+// The hand stays hidden after a turn ends until the next player takes the device.
+let covered = false;
 
 async function start() {
   [map, config] = await Promise.all([
@@ -47,6 +52,7 @@ async function start() {
 function newGame() {
   state = createGame(map, config, Math.floor(Math.random() * 2 ** 31));
   selectedId = null;
+  covered = false;
   draw();
 }
 
@@ -72,12 +78,13 @@ function draw() {
   });
   turnLabel.textContent = `Turn ${state.turn} - Player ${state.current}`;
   turnLabel.className = `owner-${state.current}`;
-  endTurnButton.disabled = Boolean(pending);
+  endTurnButton.disabled = Boolean(pending) || Boolean(state.over) || covered;
   drawInfo();
   drawStatus();
   drawOrder();
   drawDecision();
   drawHand();
+  drawOver();
   logList.innerHTML = state.log
     .slice(-12)
     .reverse()
@@ -112,7 +119,8 @@ function drawStatus() {
   statusLine.textContent =
     `Doctrine: ${doctrine} | Plays left: ${state.cardsPerTurn - state.played} | ` +
     `Discard: ${state.discardUsed ? 'used' : 'available'} | Deck: ${state.deck.length} | ` +
-    `Player ${other} holds ${state.hands[other].length} cards`;
+    `Player ${other} holds ${state.hands[other].length} cards | ` +
+    `Break score A ${breakScore(state, 'A')}, B ${breakScore(state, 'B')} (thresholds hidden)`;
 }
 
 function drawOrder() {
@@ -139,8 +147,27 @@ function drawDecision() {
       : 'it cannot retreat.');
 }
 
+function drawOver() {
+  const over = state.over;
+  overPanel.hidden = !over;
+  if (!over) return;
+  $('over-title').textContent = `Player ${over.loser} surrenders - Player ${over.winner} wins`;
+  $('over-reason').textContent = over.reason;
+  const rows = ['A', 'B']
+    .map((p) => `<tr><td>Player ${p}</td><td>${over.scores[p]}</td><td>${over.thresholds[p]}</td></tr>`)
+    .join('');
+  $('over-table').innerHTML = `<tr><th></th><th>Break score</th><th>Threshold</th></tr>${rows}`;
+}
+
 function drawHand() {
   const hand = state.hands[state.current];
+  coverPanel.hidden = !covered || Boolean(state.over);
+  if (covered && !state.over) {
+    handTitle.textContent = '';
+    coverText.textContent = `Pass the device to Player ${state.current}.`;
+    handEl.innerHTML = '';
+    return;
+  }
   handTitle.textContent = `Player ${state.current}'s hand`;
   handEl.innerHTML = hand
     .map((card) => {
@@ -219,7 +246,16 @@ handEl.addEventListener('click', (event) => {
 
 $('hold').addEventListener('click', () => attempt(() => resolveHold(state)));
 endOrderButton.addEventListener('click', () => attempt(() => endOrder(state)));
-endTurnButton.addEventListener('click', () => attempt(() => endTurn(state)));
+endTurnButton.addEventListener('click', () => {
+  attempt(() => endTurn(state));
+  covered = !state.over;
+  draw();
+});
+$('reveal').addEventListener('click', () => {
+  covered = false;
+  draw();
+});
+$('over-new').addEventListener('click', newGame);
 $('new-game').addEventListener('click', newGame);
 
 start();

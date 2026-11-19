@@ -514,10 +514,38 @@ playtests disagree):
   - Propaganda = resolve +3 and Martial Law = resolve +3 plus a stack
     (2+ men) loses 1 man (counted as a casualty, so net -2 on the break
     score, matching the earlier "-2 with a man lost"). `resolve` is stored
-    per player and is only consumed by the break score in M4.
-  - Only the current player's hand is shown (the opponent's is a count), but
-    there is no cover between turns, so the hand is exposed when the device
-    is passed. The hot-seat hand cover is still M4.
+    per player and is consumed by the break score (M4).
+  - Only the current player's hand is shown (the opponent's is a count).
+
+  M4 decisions (surrender and game end):
+  - 3 Surrender cards are added to the deck after the opening hands are
+    dealt (deck 40 at start of war), so nobody is checked before play begins.
+    A drawn Surrender card is never kept: it is resolved at once and goes to
+    the discard pile (it comes back after a reshuffle). The drawer then
+    draws a replacement card.
+  - Only the DRAWER is checked (D13): they surrender if
+    break score >= their hidden threshold. If not, the log says "the nation
+    holds firm" - which tells the opponent the threshold is above the score.
+  - Break score = casualties + 2 per battle lost + 1 per home hex held by an
+    enemy stack (3 for the capital) - resolve (never below 0). Home hexes =
+    the player's starting stack hexes plus their capital. "Held" = an enemy
+    stack is standing on it (no zones of control). All weights are in
+    data/cards.json under "surrender".
+  - Thresholds: each player gets a random 8-12 from the seeded RNG, stored
+    in the game state and not shown until the game ends. The break scores
+    themselves are shown to both players (they are countable from public
+    chips anyway: casualty pile, lost battles, lost ground).
+  - Also ends the game: a player with no stacks left surrenders at once.
+  - The end screen shows the winner, why, and both break scores and
+    thresholds, so playtesters can see how close it was.
+  - Hot-seat cover: ending a turn hides the hand behind "Pass the device to
+    Player X" until they press "Show my hand". End turn is disabled while the
+    hand is covered. The board is always visible.
+  - Observation for playtests: 3 of 40 cards are Surrender and a turn draws
+    up to 3 cards (2 plays + the free discard), so one comes up roughly every
+    4-5 turns, alternating between the players at random. If games drag, add
+    copies or lower thresholds; if a break feels like pure luck, narrow the
+    threshold range.
 
 
 

@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
-  applyToStack, attack, cardIssue, createGame, discardCard, eligibleStacks, endOrder, endTurn,
+  applyToStack, attack, breakScore, cardIssue, createGame, discardCard, eligibleStacks, endOrder, endTurn,
   inBounds, legalAttacks, legalMerges, legalMoves, legalSplits, mergeStacks, moveStack, playCard,
   resolveHold, resolveRetreat, retreatOptions, splitStack, stackAt, strength,
 } from '../js/engine.js';
@@ -62,8 +62,12 @@ test('setup: 5 stacks per side, 5-card hands, and a seeded deck', () => {
   for (const s of state.stacks) assert.ok(inBounds(state, s.col, s.row));
   assert.equal(state.hands.A.length, 5);
   assert.equal(state.hands.B.length, 5);
-  const total = config.cards.reduce((n, c) => n + c.count, 0);
+  const total = config.cards.reduce((n, c) => n + c.count, 0) + config.surrender.count;
   assert.equal(state.deck.length + 10, total);
+  for (const p of ['A', 'B']) {
+    assert.ok(state.hands[p].every((c) => c.type !== 'surrender'));
+    assert.ok(state.thresholds[p] >= 8 && state.thresholds[p] <= 12);
+  }
   assert.deepEqual(createGame(map, config, 42).hands, state.hands);
   assert.notDeepEqual(createGame(map, config, 43).hands, state.hands);
 });
@@ -294,4 +298,59 @@ test('the discard pile is reshuffled when the deck runs out', () => {
   assert.equal(state.hands.B.length, 5);
   const all = [...state.deck, ...state.discard, ...state.hands.A, ...state.hands.B].map((c) => c.uid);
   assert.equal(new Set(all).size, all.length);
+});
+
+// Rig the deck so the current player's next draw is a surrender card.
+function rigSurrender(state) {
+  const next = structuredClone(state);
+  next.hands[next.current].pop();
+  next.deck.push({ uid: 'surrender#rigged', type: 'surrender' });
+  return next;
+}
+
+test('break score counts casualties, lost battles and lost home ground, minus resolve', () => {
+  let state = duel(3, 3);
+  assert.equal(breakScore(state, 'A'), 0);
+  state.casualties.A = 4;
+  state.battlesLost.A = 1;
+  assert.equal(breakScore(state, 'A'), 6);
+  state.stacks.find((s) => s.id === 'B1').col = 1; // enemy on A's starting hex (1,2)
+  state.stacks.find((s) => s.id === 'A1').col = 3;
+  assert.equal(breakScore(state, 'A'), 7);
+  state.stacks.find((s) => s.id === 'B1').col = 0;
+  state.stacks.find((s) => s.id === 'B1').row = 0; // enemy on A's capital
+  assert.equal(breakScore(state, 'A'), 6 + config.surrender.capitalWeight);
+  state.resolve.A = 100;
+  assert.equal(breakScore(state, 'A'), 0);
+});
+
+test('a surrender card breaks only the drawer, and only above their threshold', () => {
+  let state = createGame(map, config, 5);
+  state.casualties.A = 50; // A is far past any threshold, B is untouched
+  state = endTurn(rigSurrender(state));
+  assert.equal(state.over.loser, 'A');
+  assert.equal(state.over.winner, 'B');
+  assert.deepEqual(state.thresholds, state.over.thresholds);
+  assert.throws(() => endTurn(state));
+  assert.throws(() => discardCard(state, state.hands.A[0].uid));
+  assert.ok(state.hands.A.every((c) => cardIssue(state, c) === 'The game is over'));
+});
+
+test('a surrender card is harmless to a nation that still holds firm, and is recycled', () => {
+  let state = createGame(map, config, 5);
+  state.casualties.B = 50; // only the opponent is broken
+  state = endTurn(rigSurrender(state));
+  assert.equal(state.over, null);
+  assert.equal(state.hands.A.length, 5);
+  assert.ok(state.hands.A.every((c) => c.type !== 'surrender'));
+  assert.ok(state.discard.some((c) => c.type === 'surrender'));
+  assert.equal(state.current, 'B');
+});
+
+test('a nation with no stacks left surrenders at once', () => {
+  let state = duel(3, 1);
+  state = attack(play(state, 'attack'), 'A1', 'B1');
+  state = resolveHold(state);
+  assert.equal(state.over.loser, 'B');
+  assert.match(state.over.reason, /destroyed/);
 });

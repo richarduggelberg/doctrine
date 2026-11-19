@@ -30,14 +30,54 @@ function shuffle(state, items) {
   return items;
 }
 
+// Break score: how close a nation is to giving up. Public information (casualties,
+// lost battles, lost home ground); only the threshold it is compared with is hidden.
+export function breakScore(state, owner) {
+  const s = state.surrender;
+  let score = state.casualties[owner] + s.battleWeight * state.battlesLost[owner];
+  for (const home of state.home[owner]) {
+    const holder = stackAt(state, home.col, home.row);
+    if (holder && holder.owner !== owner) score += home.capital ? s.capitalWeight : s.homeHexWeight;
+  }
+  return Math.max(0, score - state.resolve[owner]);
+}
+
+function endGame(state, loser, reason) {
+  state.over = {
+    loser,
+    winner: PLAYERS.find((p) => p !== loser),
+    reason,
+    scores: Object.fromEntries(PLAYERS.map((p) => [p, breakScore(state, p)])),
+    thresholds: { ...state.thresholds },
+  };
+  state.log.push(`Player ${loser} surrenders (${reason}). Player ${state.over.winner} wins.`);
+}
+
+// A drawn surrender card is resolved at once: only the drawer is checked against their
+// hidden threshold. It is never kept in hand; it returns to the discard pile.
+function resolveSurrenderDraw(state, owner) {
+  const score = breakScore(state, owner);
+  if (score >= state.thresholds[owner]) {
+    endGame(state, owner, 'surrender card drawn and will to fight broken');
+  } else {
+    state.log.push(`Surrender card drawn by ${owner}: the nation holds firm`);
+  }
+}
+
 function draw(state, owner) {
-  while (state.hands[owner].length < state.handSize) {
+  while (state.hands[owner].length < state.handSize && !state.over) {
     if (state.deck.length === 0) {
       if (state.discard.length === 0) return;
       state.deck = shuffle(state, state.discard);
       state.discard = [];
     }
-    state.hands[owner].push(state.deck.pop());
+    const card = state.deck.pop();
+    if (card.type === 'surrender') {
+      state.discard.push(card);
+      resolveSurrenderDraw(state, owner);
+    } else {
+      state.hands[owner].push(card);
+    }
   }
 }
 
@@ -76,14 +116,35 @@ export function createGame(map, config, seed = 1) {
     casualties: { A: 0, B: 0 },
     battlesLost: { A: 0, B: 0 },
     resolve: { A: 0, B: 0 },
+    surrender: { ...config.surrender },
+    home: Object.fromEntries(
+      PLAYERS.map((p) => {
+        const hexes = new Map();
+        for (const s of map.stacks.filter((st) => st.owner === p)) {
+          hexes.set(key(s.col, s.row), { col: s.col, row: s.row, capital: false });
+        }
+        const cap = map.capitals[p];
+        hexes.set(key(cap.col, cap.row), { col: cap.col, row: cap.row, capital: true });
+        return [p, [...hexes.values()]];
+      }),
+    ),
+    thresholds: {},
+    over: null,
     pending: null,
     log: ['Game start. Player A moves first.'],
   };
+  const { thresholdMin, thresholdMax } = config.surrender;
+  for (const owner of PLAYERS) {
+    state.thresholds[owner] = thresholdMin + Math.floor(nextRandom(state) * (thresholdMax - thresholdMin + 1));
+  }
   for (const def of config.cards) {
     for (let n = 1; n <= def.count; n++) state.deck.push({ uid: `${def.id}#${n}`, type: def.id });
   }
   shuffle(state, state.deck);
   for (const owner of PLAYERS) draw(state, owner);
+  // Surrender cards join after the opening hands so nobody is checked before the war starts.
+  for (let n = 1; n <= config.surrender.count; n++) state.deck.push({ uid: `surrender#${n}`, type: 'surrender' });
+  shuffle(state, state.deck);
   return state;
 }
 
@@ -142,6 +203,7 @@ function eligible(state, kind, stack) {
 // Why a card cannot be played right now, or null if it can.
 export function cardIssue(state, card) {
   const def = state.defs[card.type];
+  if (state.over) return 'The game is over';
   if (state.pending) return 'Resolve the battle first';
   if (state.active) return 'Finish the current order first';
   if (state.played >= state.cardsPerTurn) return 'No card plays left this turn';
@@ -211,7 +273,7 @@ export function endOrder(state) {
 
 export function discardCard(state, uid) {
   const card = state.hands[state.current].find((c) => c.uid === uid);
-  if (!card || state.discardUsed || state.pending) throw new Error('Cannot discard');
+  if (!card || state.discardUsed || state.pending || state.over) throw new Error('Cannot discard');
   const next = structuredClone(state);
   next.hands[next.current] = next.hands[next.current].filter((c) => c.uid !== uid);
   next.discard.push(card);
@@ -222,13 +284,13 @@ export function discardCard(state, uid) {
 
 function activeFor(state, kind, stack) {
   const a = state.active;
-  return a && !state.pending && a.kind === kind && stack && stack.owner === state.current ? a : null;
+  return a && !state.pending && !state.over && a.kind === kind && stack && stack.owner === state.current ? a : null;
 }
 
 // Stacks that can currently be chosen for the active order.
 export function eligibleStacks(state) {
   const a = state.active;
-  if (!a || state.pending) return [];
+  if (!a || state.pending || state.over) return [];
   return state.stacks.filter(
     (s) => s.owner === state.current && !a.used.includes(s.id) && eligible(state, a.kind, s),
   );
@@ -330,6 +392,9 @@ function finishBattle(next) {
     attacker.row = pending.defenderRow;
     next.log.push(`${attacker.id} advances to (${attacker.col},${attacker.row})`);
   }
+  // A nation with no stacks left cannot fight on.
+  const wiped = PLAYERS.find((p) => !next.stacks.some((s) => s.owner === p));
+  if (wiped) endGame(next, wiped, 'all stacks destroyed');
 }
 
 function requirePending(state) {
@@ -443,9 +508,11 @@ export function applyToStack(state, id) {
 
 export function endTurn(state) {
   if (state.pending) throw new Error('Resolve the battle first');
+  if (state.over) throw new Error('The game is over');
   const next = structuredClone(state);
   if (next.active) cancelActive(next);
   draw(next, next.current);
+  if (next.over) return next;
   const index = PLAYERS.indexOf(next.current);
   next.current = PLAYERS[(index + 1) % PLAYERS.length];
   if (next.current === PLAYERS[0]) next.turn += 1;
