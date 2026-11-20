@@ -36,29 +36,38 @@ export function renderBoard(svg, state, view) {
     parts.push(`<text class="capital owner-${owner}" x="${x}" y="${y + SIZE * 0.86}" text-anchor="middle">★</text>`);
   }
 
-  // Terrain chips (brown: 1 rough, 2 fortified) and trench chips (dark) sit in piles on the hex.
-  // They never move or attack; like men they count only for the defender.
-  const pile = (x, y, count, cls) => {
-    for (let i = 0; i < count; i++) {
-      parts.push(
-        `<ellipse class="${cls}" cx="${x}" cy="${y - i * 4}" rx="10" ry="5.5"/>`,
-      );
-    }
-  };
+  // Everything on a hex is one pile of equal chips, bottom to top: terrain (1 rough, 2 fortified),
+  // trench chips, men, gear. Terrain and trenches never move or attack but count for the defender.
+  const stackAt = new Map(state.stacks.map((s) => [key(s.col, s.row), s]));
+  const piles = [];
   for (let row = 0; row < state.rows; row++) {
     for (let col = 0; col < state.cols; col++) {
-      const { x, y } = center(col, row, SIZE);
       const terrain = terrainAt(state, col, row);
-      const chips = terrain === 'fortified' ? 2 : terrain === 'rough' ? 1 : 0;
-      pile(x - 22, y + 14, chips, 'terrain-chip');
-      pile(x + 22, y + 14, state.defense[key(col, row)] ?? 0, 'trench-chip');
+      const terrainChips = terrain === 'fortified' ? 2 : terrain === 'rough' ? 1 : 0;
+      const trenchChips = state.defense[key(col, row)] ?? 0;
+      const stack = stackAt.get(key(col, row));
+      if (terrainChips || trenchChips || stack) piles.push({ col, row, terrainChips, trenchChips, stack });
     }
   }
 
   // Draw back-to-front so lower rows overlap higher ones.
-  const ordered = [...state.stacks].sort((a, b) => a.row - b.row);
-  for (const stack of ordered) {
-    const { x, y } = center(stack.col, stack.row, SIZE);
+  piles.sort((a, b) => a.row - b.row || a.col - b.col);
+  for (const { col, row, terrainChips, trenchChips, stack } of piles) {
+    const { x, y } = center(col, row, SIZE);
+    const kinds = [
+      ...Array(terrainChips).fill('terrain-chip'),
+      ...Array(trenchChips).fill('trench-chip'),
+      ...(stack ? [...Array(stack.men).fill('chip'), ...Array(stack.gear).fill('chip gear')] : []),
+    ];
+    const thickness = kinds.length > 10 ? 3 : CHIP_THICKNESS;
+    const chips = kinds.map(
+      (kind, i) =>
+        `<ellipse class="${kind}" cx="${x}" cy="${y + 6 - i * thickness}" rx="${CHIP_RADIUS}" ry="${CHIP_RADIUS * 0.55}"/>`,
+    );
+    if (!stack) {
+      parts.push(`<g class="pile">${chips.join('')}</g>`);
+      continue;
+    }
     const classes = ['stack', `owner-${stack.owner}`];
     if (stack.braced) classes.push('braced');
     if (view.eligible.has(stack.id)) classes.push('eligible');
@@ -66,13 +75,7 @@ export function renderBoard(svg, state, view) {
     if (view.enemyTargets.has(stack.id)) classes.push('attackable');
     if (view.friendTargets.has(stack.id)) classes.push('mergeable');
     if (stack.id === view.loserId) classes.push('loser');
-    const chips = [];
-    for (let i = 0; i < stack.men + stack.gear; i++) {
-      const cy = y + 6 - i * CHIP_THICKNESS;
-      const kind = i < stack.men ? 'chip' : 'chip gear';
-      chips.push(`<ellipse class="${kind}" cx="${x}" cy="${cy}" rx="${CHIP_RADIUS}" ry="${CHIP_RADIUS * 0.55}"/>`);
-    }
-    const topY = y + 6 - (stack.men + stack.gear - 1) * CHIP_THICKNESS;
+    const topY = y + 6 - (kinds.length - 1) * thickness;
     const label = stack.gear ? `${stack.men}+${stack.gear}` : `${stack.men}`;
     parts.push(
       `<g class="${classes.join(' ')}" data-stack="${stack.id}">` +

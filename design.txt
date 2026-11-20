@@ -615,11 +615,13 @@ playtests disagree):
     "extraCost" on Offensive and the "points" row in the level table. No cap
     on the bonus for now; add one (e.g. max +2) if +3 on one stack proves
     too decisive.
-  - Terrain is now shown as chips: 1 brown chip on a rough hex, 2 on a
-    fortified hex; trench chips are dark; hexes themselves are all one
-    colour. Both are +1 defense each, defender only, never move or attack.
-    Rules and map data are unchanged (only the rendering moved to chips),
-    so a physical board can lay the same chips on a plain hex mat.
+  - Terrain is now shown as chips, all the same size, in ONE pile per hex,
+    bottom to top: terrain chips (brown: 1 rough, 2 fortified), trench
+    chips (dark), men (owner colour), gear (gold). Hexes themselves are all
+    one colour. Terrain and trench chips are +1 defense each, defender only,
+    never move or attack. Rules and map data are unchanged (only the
+    rendering moved to chips), so a physical board can build the same piles
+    on a plain hex mat. An empty hex with terrain shows just its chips.
 
 
 
