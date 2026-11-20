@@ -122,6 +122,7 @@ export function createGame(map, config, seed = 1) {
     moved: 0,
     rail: 0,
     fought: false,
+    cut: 0,
   }));
   const state = {
     cols: map.cols,
@@ -235,6 +236,29 @@ export function inEnemyZoc(state, owner, col, row) {
   });
 }
 
+// Supply: a stack needs a path back to its own capital that crosses no enemy zone and no enemy stack.
+// Its own hex is exempt (front-line stacks always sit in a zone) and so is the capital hex itself.
+// A stack that has no such path is cut off (surrounded): it can do nothing and bleeds each turn.
+export function isCutOff(state, stack) {
+  const cap = state.capitals[stack.owner];
+  const seen = new Set([key(stack.col, stack.row)]);
+  const queue = [stack];
+  while (queue.length) {
+    const here = queue.shift();
+    for (const n of neighbors(here.col, here.row)) {
+      const k = key(n.col, n.row);
+      if (seen.has(k) || !inBounds(state, n.col, n.row)) continue;
+      seen.add(k);
+      const other = stackAt(state, n.col, n.row);
+      if (other && other.owner !== stack.owner) continue;
+      const home = n.col === cap.col && n.row === cap.row;
+      if (home) return false;
+      if (!inEnemyZoc(state, stack.owner, n.col, n.row)) queue.push(n);
+    }
+  }
+  return !(stack.col === cap.col && stack.row === cap.row);
+}
+
 // Hexes a stack can walk or split into: empty and outside every enemy zone.
 function freeNeighbors(state, stack) {
   return emptyNeighbors(state, stack).filter((n) => !inEnemyZoc(state, stack.owner, n.col, n.row));
@@ -246,12 +270,14 @@ function canStep(stack) {
 }
 
 function directTargets(state, stack, def) {
+  if (isCutOff(state, stack)) return [];
   return adjacentStacks(state, stack, false).filter((s) => !def?.requiresSpent || s.spent);
 }
 
 // Entry hexes for an assault: empty neighbours touching an enemy the stack is not already next to.
+// A stack already in an enemy zone may only attack from where it stands or step out; it cannot step zone to zone.
 function assaultEntries(state, stack, def) {
-  if (!canStep(stack)) return [];
+  if (!canStep(stack) || isCutOff(state, stack) || inEnemyZoc(state, stack.owner, stack.col, stack.row)) return [];
   const direct = new Set(adjacentStacks(state, stack, false).map((s) => s.id));
   return emptyNeighbors(state, stack)
     .map((hex) => ({
@@ -265,6 +291,7 @@ function assaultEntries(state, stack, def) {
 
 // Can this stack be the subject of the given order card?
 function eligible(state, def, stack) {
+  if (isCutOff(state, stack)) return false;
   const value = (field) => cardValue(state, stack.owner, def, field);
   switch (def.kind) {
     case 'attack':
@@ -386,6 +413,7 @@ function activeFor(state, kind, stack) {
 // What a stack can target with the active pool card's current menu entry:
 // the stack itself, a friendly stack to merge into, or a hex to split into.
 function poolOptions(state, mode, stack) {
+  if (isCutOff(state, stack)) return [];
   const def = state.defs[state.active.card.type];
   const value = (field) => cardValue(state, stack.owner, def, field);
   switch (mode) {
@@ -443,7 +471,7 @@ export function needsTarget(mode) {
 // Entering an enemy zone takes an attack (assault); a stack that fought cannot step.
 export function legalMoves(state, id) {
   const stack = getStack(state, id);
-  if (!stack || stack.owner !== state.current || state.pending || state.over || !canStep(stack)) return [];
+  if (!stack || stack.owner !== state.current || state.pending || state.over || !canStep(stack) || isCutOff(state, stack)) return [];
   return freeNeighbors(state, stack);
 }
 
@@ -571,10 +599,12 @@ export function attack(state, attackerId, defenderId, bonus = 0, entry = null, p
 
 // A retreat costs 1 gear, or 1 man if the stack has none, so it needs a chip to spare
 // (free under elastic defence). It must end outside every enemy zone.
+// A cut-off stack cannot retreat either: it must stand.
 export function retreatOptions(state) {
   const pending = state.pending;
   if (!pending) return [];
   const loser = getStack(state, pending.loserId);
+  if (isCutOff(state, loser)) return [];
   if (!state.elastic[loser.owner] && loser.gear === 0 && loser.men < 2) return [];
   return freeNeighbors(state, loser);
 }
@@ -690,7 +720,7 @@ export function splitStack(state, id, col, row) {
   // The new stack has used its step getting there.
   next.stacks.push({
     id: newId, owner: stack.owner, col, row, men: sent, gear: gearSent, braced: 0, spent: false,
-    moved: 1, rail: 0, fought: false,
+    moved: 1, rail: 0, fought: false, cut: 0,
   });
   next.log.push(`${id} splits: ${newId} (${sent} men${gearSent ? `, ${gearSent} gear` : ''}) at (${col},${row})`);
   spend(next, next.active.menu.split);
@@ -795,6 +825,29 @@ export function endTurn(state) {
   next.played = 0;
   next.discardUsed = false;
   next.elastic[next.current] = false;
+  // Cut-off stacks bleed: gear the first turn, then a man every turn after that.
+  for (const stack of next.stacks.filter((s) => s.owner === next.current)) {
+    if (!isCutOff(next, stack)) {
+      stack.cut = 0;
+      continue;
+    }
+    stack.cut += 1;
+    if (stack.cut === 1 && stack.gear > 0) {
+      stack.gear -= 1;
+      next.log.push(`${stack.id} is cut off from supply and loses 1 gear`);
+    } else if (stack.cut > 1) {
+      loseMen(next, stack, 1);
+      next.log.push(`${stack.id} is cut off from supply and loses 1 man`);
+    } else {
+      next.log.push(`${stack.id} is cut off from supply`);
+    }
+  }
+  next.stacks = next.stacks.filter((s) => s.men > 0);
+  const wiped = PLAYERS.find((p) => !next.stacks.some((s) => s.owner === p));
+  if (wiped) {
+    endGame(next, wiped, 'all stacks destroyed');
+    return next;
+  }
   for (const stack of next.stacks) {
     if (stack.owner === next.current) {
       stack.braced = 0;

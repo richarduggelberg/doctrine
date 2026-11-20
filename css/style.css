@@ -77,6 +77,9 @@ aside h2:first-child { margin-top: 0; }
 .stack.attackable .halo { stroke: #ff3b30; stroke-width: 3; stroke-dasharray: 5 3; }
 .stack.mergeable .halo { stroke: #34c759; stroke-width: 3; stroke-dasharray: 5 3; }
 .stack.loser .halo { stroke: #ffd60a; stroke-width: 3; }
+.stack.cutoff .halo { stroke: #b36bff; stroke-width: 2.5; stroke-dasharray: 1 3; }
+.stack.cutoff .chip { filter: grayscale(.7); }
+.swatch.cutoff { background: none; border: 2px dotted #b36bff; border-radius: 50%; }
 .stack .chip.gear { fill: #d4af37; stroke: #5c4400; }
 .tint { pointer-events: none; }
 .tint-A { fill: #e0402e; fill-opacity: .13; }

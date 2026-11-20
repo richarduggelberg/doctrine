@@ -1,5 +1,5 @@
 import { center, corners, edgeSegments, key } from './hex.js';
-import { strength, terrainAt, territoryOf } from './engine.js';
+import { isCutOff, strength, terrainAt, territoryOf } from './engine.js';
 
 const SIZE = 36;
 const CHIP_RADIUS = 21;
@@ -79,6 +79,7 @@ export function renderBoard(svg, state, view) {
     if (view.enemyTargets.has(stack.id)) classes.push('attackable');
     if (view.friendTargets.has(stack.id)) classes.push('mergeable');
     if (stack.id === view.loserId) classes.push('loser');
+    if (isCutOff(state, stack)) classes.push('cutoff');
     const topY = y + 6 - (kinds.length - 1) * thickness;
     // Big number: strength when defending (terrain, trenches, brace included). Small: the mobile part that attacks.
     const defend = strength(state, stack, true);

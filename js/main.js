@@ -1,6 +1,6 @@
 import {
   applyPool, applyToStack, attack, breakScore, canPayEntry, cardIssue, cardText, chooseMode, createGame, discardCard,
-  doctrineLevel, eligibleStacks, endOrder, endTurn, getStack, inEnemyZoc, isDirectOrder, legalAssaults, legalAttacks,
+  doctrineLevel, eligibleStacks, endOrder, endTurn, getStack, inEnemyZoc, isCutOff, isDirectOrder, legalAssaults, legalAttacks,
   legalMerges, legalMoves, legalSplits, mergeStacks, moveStack, maxBonus, needsTarget, playCard, resolveHold,
   resolveRetreat, retreatOptions, splitStack, strength, terrainAt,
 } from './engine.js';
@@ -147,7 +147,8 @@ function drawInfo() {
   const lines = [
     `${stack.id}: ${stack.men} men + ${stack.gear} gear on ${terrainAt(state, stack.col, stack.row)} ` +
       `(${stack.col},${stack.row}). Defends at ${strength(state, stack, true)}.` +
-      `${stack.fought ? ' Fought this turn: cannot step.' : stack.moved ? ' Already stepped this turn.' : ''}`,
+      `${stack.fought ? ' Fought this turn: cannot step.' : stack.moved ? ' Already stepped this turn.' : ''}` +
+      `${isCutOff(state, stack) ? ' CUT OFF: no supply path home, it can do nothing.' : ''}`,
   ];
   const assaults = legalAssaults(state, stack.id);
   const chosen = chosenEntry(assaults);

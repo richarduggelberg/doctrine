@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   applyPool, applyToStack, attack, breakScore, cardIssue, chooseMode, createGame, discardCard, eligibleStacks, endOrder,
-  endTurn, inBounds, inEnemyZoc, legalAssaults, legalAttacks, legalMerges, legalMoves, legalSplits, maxBonus, mergeStacks,
+  endTurn, inBounds, inEnemyZoc, isCutOff, legalAssaults, legalAttacks, legalMerges, legalMoves, legalSplits, maxBonus, mergeStacks,
   moveStack, playCard, resolveHold, resolveRetreat, retreatOptions, splitStack, stackAt, strength, territoryOf,
 } from '../js/engine.js';
 import { distance, neighbors } from '../js/hex.js';
@@ -620,6 +620,54 @@ test('Elastic Defence makes retreats free until its owner next turn, even for a 
   assert.equal(state.stacks.find((s) => s.id === 'B1').men, 1, 'no retreat cost');
   assert.match(state.log.at(-2), /elastic/);
   assert.equal(endTurn(endTurn(state)).elastic.B, false);
+});
+
+test('a stack already in an enemy zone cannot assault another one: it attacks in place or steps out', () => {
+  const state = play(duel(5, 3), 'attack');
+  const far = structuredClone(state.stacks[1]);
+  Object.assign(far, { id: 'B2', col: 3, row: 4 }); // a second enemy two hexes from A1
+  state.stacks.push(far);
+  assert.equal(inEnemyZoc(state, 'A', 1, 2), true);
+  assert.deepEqual(legalAssaults(state, 'A1'), []);
+  assert.equal(legalAttacks(state, 'A1').length, 1);
+  assert.ok(legalMoves(state, 'A1').every((h) => !inEnemyZoc(state, 'A', h.col, h.row)));
+});
+
+// A1 at (1,2) is hemmed in: B1 at (2,2) and B2 at (0,2) cover every hex that leads home.
+function surrounded() {
+  const state = duel(5, 3);
+  state.stacks[0].gear = 1;
+  const flank = structuredClone(state.stacks[1]);
+  Object.assign(flank, { id: 'B2', col: 0, row: 2 });
+  state.stacks.push(flank);
+  return state;
+}
+
+test('a stack with no supply path to its capital is cut off: it can do nothing and bleeds', () => {
+  const free = duel(5, 3);
+  assert.equal(isCutOff(free, free.stacks[0]), false, 'a front stack with a clear way home is supplied');
+  let state = surrounded();
+  assert.equal(isCutOff(state, state.stacks[0]), true);
+  assert.deepEqual(legalMoves(state, 'A1'), []);
+  assert.match(cardIssue(state, give(state, 'attack').hands.A.at(-1)), /No stack/);
+  state = endTurn(endTurn(state));
+  const a1 = () => state.stacks.find((s) => s.id === 'A1');
+  assert.deepEqual([a1().gear, a1().men], [0, 5], 'first turn: loses gear');
+  state = endTurn(endTurn(state));
+  assert.equal(a1().men, 4, 'afterwards: loses a man a turn');
+  assert.equal(state.casualties.A, 1);
+  state.stacks = state.stacks.filter((s) => s.id !== 'B2');
+  state = endTurn(endTurn(state));
+  assert.equal(a1().cut, 0, 'relieved stacks recover');
+});
+
+test('a cut-off stack cannot retreat and the capital itself is always supplied', () => {
+  const state = surrounded();
+  state.pending = { loserId: 'A1', attackerId: 'B1', defenderCol: 1, defenderRow: 2, winnerId: 'B1' };
+  assert.deepEqual(retreatOptions(state), []);
+  state.stacks[0].col = 0;
+  state.stacks[0].row = 0;
+  assert.equal(isCutOff(state, state.stacks[0]), false);
 });
 
 test('a nation with no stacks left surrenders at once', () => {

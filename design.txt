@@ -733,7 +733,17 @@ M9 - ZONES OF CONTROL, FREE MOVEMENT AND DOCTRINE POINT MENUS
                                up to a level cap), 1 merge, 1 split
        Willingness (Home Front) 1 propaganda (+1 resolve), 1 relief (-2
                                weariness), 2 recruit (+1 man in own territory)
-     The card only sets a budget; the player chooses where it goes.
+     Pool cards are only a budget; the player chooses where it goes.
+  7. STEPPING OUT OF A ZONE: a stack already in an enemy zone may attack in
+     place (an enemy is always adjacent) or step free into a hex outside every
+     enemy zone. It cannot step from one enemy zone into another.
+  8. SUPPLY: a stack needs a path to its own capital that crosses no enemy zone
+     and no enemy stack (its own hex and the capital hex are exempt). Without
+     one it is CUT OFF: it cannot act, merge, split or retreat (it must stand),
+     loses 1 gear on its first cut-off turn and 1 man on each turn after that
+     (checked at the start of its owner's turn; counts as casualties). It
+     recovers the moment a path reopens. Open question: "a stack of men" was
+     read as one man per turn.
   Simulation (300 seeded games, naive bots): default doctrines A 64% / B 36%,
   ~18 rounds, casualties ~12 / ~16, mirrored doctrines 50/50. Bots mostly take
   hasty assaults and never use rail or split, so this needs human playtests.
