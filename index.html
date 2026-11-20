@@ -17,6 +17,7 @@
     <label class="declare" title="A declared doctrine is public and gives +2 starting resolve; a secret one is hidden from the opponent.">
       <input type="checkbox" id="declare-B" checked> Declare B
     </label>
+    <label class="declare"><input type="checkbox" id="show-zoc" checked> Show enemy zones</label>
     <span id="turn"></span>
   </header>
   <main>
@@ -24,6 +25,7 @@
     <div id="status"></div>
     <div id="order" hidden>
       <p id="order-text"></p>
+      <div id="modes" hidden></div>
       <div id="bonus" hidden></div>
       <button id="end-order">Cancel order</button>
     </div>
@@ -57,6 +59,8 @@
       <span class="swatch terr-B"></span><span>Player B territory</span>
       <span class="swatch gear"></span><span>Gear / experience chip</span>
       <span class="swatch spent"></span><span>Spent stack (just advanced): -1 strength until its owner's next turn</span>
+      <span class="swatch zoc"></span><span>Enemy zone of control: free movement cannot enter it; an assault can (2 points, or -2 strength)</span>
+      <span class="swatch entry"></span><span>Assault entry hex (pick it, then the enemy to hit)</span>
     </div>
     <h2>Log</h2>
     <ol id="log" reversed></ol>

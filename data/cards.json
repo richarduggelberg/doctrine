@@ -19,6 +19,7 @@
     "publicResolve": 2
   },
   "maxLevel": 3,
+  "assault": { "entryCost": 2, "hastyPenalty": 2 },
   "doctrine": {
     "A": { "public": true, "cards": { "aggressive": 3, "reorganizational": 2, "defensive": 1, "willingness": 0 } },
     "B": { "public": true, "cards": { "defensive": 3, "willingness": 2, "reorganizational": 1, "aggressive": 0 } }
@@ -29,43 +30,46 @@
     },
     "defensive": {
       "trench": [1, 2, 3, 3],
-      "posture": [1, 1, 2, 3]
+      "posture": [1, 1, 2, 3],
+      "fortify": [1, 2, 2, 3],
+      "counter": [0, 1, 1, 2]
     },
     "reorganizational": {
+      "logistics": [1, 2, 2, 3],
       "rallyLimit": [1, 2, 3, 3],
       "splitGear": [0, 0, 0, 1]
     },
     "willingness": {
-      "propaganda": [2, 3, 4, 5],
-      "martial": [3, 4, 5, 6]
+      "homefront": [2, 3, 3, 4]
     }
   },
   "cards": [
-    { "id": "move", "name": "Move", "suit": "general", "kind": "move", "count": 8,
-      "text": "Move one stack to an adjacent empty hex." },
-    { "id": "attack", "name": "Basic Attack", "suit": "general", "kind": "attack", "count": 6,
-      "text": "One stack attacks an adjacent enemy stack." },
-    { "id": "hold", "name": "Hold", "suit": "general", "kind": "hold", "count": 2,
+    { "id": "attack", "name": "Basic Attack", "suit": "general", "kind": "attack", "count": 8,
+      "text": "One stack attacks an adjacent enemy stack. Stepping into an enemy zone first is a hasty assault: -2 strength." },
+    { "id": "hold", "name": "Hold", "suit": "general", "kind": "hold", "count": 3,
       "text": "One stack digs in: +1 defense until your next turn." },
 
     { "id": "offensive", "name": "Offensive", "suit": "aggressive", "kind": "attack", "points": "points", "extraCost": 2, "count": 6,
-      "text": "{points} offensive points: each adds +1 strength to an attack, or 2 points buy one extra attack (first attack is free)." },
+      "text": "{points} offensive points: +1 strength each, 2 to assault without the hasty penalty, or 2 for an extra attack (the first attack is free)." },
 
-    { "id": "entrench", "name": "Entrench", "suit": "defensive", "kind": "entrench", "limit": "trench", "count": 4,
-      "text": "Add a trench chip (+1 defense, max {limit} per hex) to a stack's hex." },
+    { "id": "fortify", "name": "Fortify", "suit": "defensive", "kind": "fortify", "points": "fortify", "limit": "trench",
+      "menu": { "fortify": 1 }, "count": 4,
+      "text": "{points} points: each adds a trench chip (+1 defense, max {limit} per hex) to a stack's hex. Spread them or pile them up." },
     { "id": "posture", "name": "Defensive Posture", "suit": "defensive", "kind": "posture", "amount": "posture", "count": 2,
       "text": "All your stacks get +{amount} defense until your next turn." },
+    { "id": "elastic", "name": "Elastic Defence", "suit": "defensive", "kind": "elastic", "count": 2,
+      "text": "Until your next turn, your stacks retreat for free (trade ground for men)." },
+    { "id": "counter", "name": "Counter-attack", "suit": "defensive", "kind": "attack", "points": "counter",
+      "requiresSpent": true, "freeEntry": true, "count": 2,
+      "text": "Attack an enemy stack that just advanced (spent), stepping into its zone freely. {points} points: +1 strength each." },
 
-    { "id": "merge", "name": "Merge", "suit": "reorganizational", "kind": "merge", "count": 2,
-      "text": "Merge a stack into an adjacent friendly stack." },
-    { "id": "split", "name": "Split", "suit": "reorganizational", "kind": "split", "gear": "splitGear", "count": 2,
-      "text": "Send half of a stack (2+ men) to an adjacent empty hex, with up to {gear} gear." },
-    { "id": "rally", "name": "Rally", "suit": "reorganizational", "kind": "rally", "limit": "rallyLimit", "count": 2,
-      "text": "A stack with fewer than {limit} gear gains 1 gear." },
+    { "id": "logistics", "name": "Logistics", "suit": "reorganizational", "kind": "logistics", "points": "logistics",
+      "limit": "rallyLimit", "gear": "splitGear",
+      "menu": { "rail": 1, "rally": 2, "merge": 1, "split": 1 }, "count": 6,
+      "text": "{points} points: rail +1 hex of movement (1), rally +1 gear up to {limit} (2), merge adjacent stacks (1), split a stack (1)." },
 
-    { "id": "propaganda", "name": "Propaganda", "suit": "willingness", "kind": "propaganda", "amount": "propaganda", "count": 2,
-      "text": "Your resolve improves: -{amount} on your break score." },
-    { "id": "martial", "name": "Martial Law", "suit": "willingness", "kind": "martial", "amount": "martial", "count": 1,
-      "text": "-{amount} on your break score, but a stack (2+ men) loses 1 man." }
+    { "id": "homefront", "name": "Home Front", "suit": "willingness", "kind": "homefront", "points": "homefront",
+      "menu": { "propaganda": 1, "relief": 1, "recruit": 2 }, "count": 4,
+      "text": "{points} points: propaganda +1 resolve (1), relief -2 war weariness (1), recruit +1 man in a home stack (2)." }
   ]
 }

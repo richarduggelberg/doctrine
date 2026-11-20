@@ -705,5 +705,39 @@ playtests disagree):
   8.2/14.5), a defensive weariness relief, or stronger Defensive levels.
   Not built: manpower pools and replacements, wrong-way trenches.
 
+M9 - ZONES OF CONTROL, FREE MOVEMENT AND DOCTRINE POINT MENUS
+  Supersedes: all Move cards, and the separate Entrench, Merge, Split, Rally,
+  Propaganda and Martial Law cards listed above. Their effects now live in the
+  pool cards below. Decisions confirmed by the designer.
+  1. ZONE OF CONTROL: every stack with at least 1 man controls the 6 adjacent
+     hexes. Hexes controlled by both sides are contested.
+  2. FREE MOVEMENT: no card needed. Each stack may step 1 hex per turn into an
+     empty hex that is NOT in an enemy zone. Leaving a zone is allowed. A stack
+     that fought this turn cannot step.
+  3. ASSAULT: entering an enemy zone needs an attack order. The stack uses its
+     step to move into an empty hex touching an enemy it is not yet adjacent
+     to, then attacks from there. Entry costs 2 Offensive points, otherwise the
+     assault is HASTY: -2 strength. Stacks already in contact attack for free.
+     Counter-attack (defensive card) enters free but only hits a stack that
+     just advanced (spent).
+  4. START: armies stand one hex apart (distance 2) on a zigzag front; the front
+     is sealed, so no unit can slip past the lines.
+  5. RETREAT: only into empty hexes outside every enemy zone. Elastic Defence
+     (defensive, immediate) makes retreats free until the owner's next turn.
+  6. POINT MENUS: each doctrine suit has a pool card whose level gives points.
+     Points are spent on options of different cost, so one card is a choice:
+       Aggressive (Offensive)  +1 strength | 2 = extra attack | 2 = clean entry
+       Defensive (Fortify)     1 = trench chip on a stack's hex (max per hex
+                               by level); Posture, Counter-attack, Elastic
+       Reorganizational        Logistics: 1 rail (+1 hex), 2 rally (+1 gear,
+                               up to a level cap), 1 merge, 1 split
+       Willingness (Home Front) 1 propaganda (+1 resolve), 1 relief (-2
+                               weariness), 2 recruit (+1 man in own territory)
+     The card only sets a budget; the player chooses where it goes.
+  Simulation (300 seeded games, naive bots): default doctrines A 64% / B 36%,
+  ~18 rounds, casualties ~12 / ~16, mirrored doctrines 50/50. Bots mostly take
+  hasty assaults and never use rail or split, so this needs human playtests.
+  Not built: manpower pools, doctrine drafting, nation cards, game-log export.
+
 
 

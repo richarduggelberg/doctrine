@@ -1,7 +1,8 @@
 import {
-  applyToStack, attack, breakScore, cardIssue, cardText, createGame, discardCard, doctrineLevel, eligibleStacks, endOrder, endTurn,
-  getStack, isDirectOrder, legalAttacks, legalMerges, legalMoves, legalSplits, mergeStacks,
-  moveStack, maxBonus, playCard, resolveHold, resolveRetreat, retreatOptions, splitStack, strength, terrainAt,
+  applyPool, applyToStack, attack, breakScore, canPayEntry, cardIssue, cardText, chooseMode, createGame, discardCard,
+  doctrineLevel, eligibleStacks, endOrder, endTurn, getStack, inEnemyZoc, isDirectOrder, legalAssaults, legalAttacks,
+  legalMerges, legalMoves, legalSplits, mergeStacks, moveStack, maxBonus, needsTarget, playCard, resolveHold,
+  resolveRetreat, retreatOptions, splitStack, strength, terrainAt,
 } from './engine.js';
 import { renderBoard } from './render.js';
 
@@ -16,6 +17,7 @@ const decisionText = $('decision-text');
 const orderPanel = $('order');
 const orderText = $('order-text');
 const bonusEl = $('bonus');
+const modesEl = $('modes');
 const endOrderButton = $('end-order');
 const statusLine = $('status');
 const handEl = $('hand');
@@ -25,14 +27,21 @@ const coverText = $('cover-text');
 const overPanel = $('over');
 
 const INSTRUCTIONS = {
-  move: 'Select a highlighted stack, then an adjacent empty hex.',
-  attack: 'Select a highlighted stack, then a red-dashed adjacent enemy.',
-  merge: 'Select a highlighted stack, then a green-dashed adjacent friendly stack to merge into.',
-  split: 'Select a highlighted stack, then an empty adjacent hex to send half of it there.',
+  attack: 'Select a highlighted stack, then a red-dashed adjacent enemy, or an orange entry hex to assault (step in and attack).',
   hold: 'Click a highlighted stack to dig it in.',
-  entrench: 'Click a highlighted stack to add a trench to its hex.',
-  rally: 'Click a highlighted stack to give it 1 gear.',
-  martial: 'Click a highlighted stack: it loses 1 man.',
+  fortify: 'Click a highlighted stack to add a trench chip to its hex.',
+  'logistics:rail': 'Click a highlighted stack: it may step 1 more hex this turn.',
+  'logistics:rally': 'Click a highlighted stack to give it 1 gear.',
+  'logistics:merge': 'Select a highlighted stack, then a green-dashed adjacent friendly stack to merge into.',
+  'logistics:split': 'Select a highlighted stack, then an empty adjacent hex to send half of it there.',
+  logistics: 'Choose what to spend points on.',
+  'homefront:recruit': 'Click a highlighted stack in your home territory to add 1 man.',
+  homefront: 'Choose what to spend points on.',
+};
+
+const MODE_LABELS = {
+  fortify: 'Trench', rail: 'Rail +1 hex', rally: 'Rally +1 gear', merge: 'Merge', split: 'Split',
+  propaganda: 'Propaganda +1 resolve', relief: 'Relief -2 weariness', recruit: 'Recruit +1 man',
 };
 
 let map;
@@ -40,6 +49,9 @@ let config;
 let state;
 let selectedId = null;
 let bonusChoice = 0;
+// An assault first steps into an entry hex; paying 2 points avoids the hasty -2 strength penalty.
+let entry = null;
+let payEntry = false;
 // The hand stays hidden after a turn ends until the next player takes the device.
 let covered = false;
 
@@ -51,30 +63,60 @@ async function start() {
   newGame();
 }
 
+function resetPicks() {
+  selectedId = null;
+  bonusChoice = 0;
+  entry = null;
+  payEntry = false;
+}
+
 function newGame() {
   const setup = structuredClone(config);
   for (const p of ['A', 'B']) setup.doctrine[p].public = $(`declare-${p}`).checked;
   state = createGame(map, setup, Math.floor(Math.random() * 2 ** 31));
-  selectedId = null;
+  resetPicks();
   covered = false;
   draw();
 }
 
+// The entry hex chosen for an assault, if it is still valid for the selected stack.
+function chosenEntry(assaults) {
+  return entry && assaults.find((e) => e.col === entry.col && e.row === entry.row);
+}
+
 function targetsFor(id) {
-  if (!id || state.pending) return { hexes: [], enemies: [], friends: [] };
+  if (!id || state.pending) return { hexes: [], entries: [], enemies: [], friends: [] };
+  const assaults = legalAssaults(state, id);
+  const chosen = chosenEntry(assaults);
   return {
-    hexes: [...legalMoves(state, id), ...legalSplits(state, id)],
-    enemies: legalAttacks(state, id),
+    hexes: [...(state.active ? [] : legalMoves(state, id)), ...legalSplits(state, id)],
+    entries: chosen ? [chosen] : assaults,
+    enemies: chosen ? chosen.targets : legalAttacks(state, id),
     friends: legalMerges(state, id),
   };
+}
+
+function enemyZone() {
+  const zone = new Set();
+  if (!$('show-zoc').checked || covered || state.over) return zone;
+  for (let row = 0; row < state.rows; row++) {
+    for (let col = 0; col < state.cols; col++) {
+      if (inEnemyZoc(state, state.current, col, row)) zone.add(`${col},${row}`);
+    }
+  }
+  return zone;
 }
 
 function draw() {
   const pending = state.pending;
   const t = targetsFor(selectedId);
+  const mover = !state.active && !pending && !state.over && !covered;
   renderBoard(svg, state, {
     selectedId,
     targets: pending ? retreatOptions(state) : t.hexes,
+    entries: new Set(t.entries.map((e) => `${e.col},${e.row}`)),
+    zoc: enemyZone(),
+    movable: new Set(mover ? state.stacks.filter((s) => legalMoves(state, s.id).length > 0).map((s) => s.id) : []),
     enemyTargets: new Set(t.enemies.map((s) => s.id)),
     friendTargets: new Set(t.friends.map((s) => s.id)),
     eligible: new Set(eligibleStacks(state).map((s) => s.id)),
@@ -99,20 +141,25 @@ function draw() {
 function drawInfo() {
   const stack = selectedId && getStack(state, selectedId);
   if (!stack) {
-    infoPanel.textContent = 'Play a card from your hand, then use the highlighted stacks.';
+    infoPanel.textContent = 'Play a card from your hand, then use the highlighted stacks. Without an order you can still step a stack 1 hex (dotted halo) outside enemy zones.';
     return;
   }
   const lines = [
     `${stack.id}: ${stack.men} men + ${stack.gear} gear on ${terrainAt(state, stack.col, stack.row)} ` +
-      `(${stack.col},${stack.row}). Defends at ${strength(state, stack, true)}.`,
+      `(${stack.col},${stack.row}). Defends at ${strength(state, stack, true)}.` +
+      `${stack.fought ? ' Fought this turn: cannot step.' : stack.moved ? ' Already stepped this turn.' : ''}`,
   ];
-  for (const target of legalAttacks(state, stack.id)) {
-    const bonus = bonusChoice;
+  const assaults = legalAssaults(state, stack.id);
+  const chosen = chosenEntry(assaults);
+  const hasty = state.assault.hastyPenalty;
+  const penalty = chosen && !state.active.freeEntry && !payEntry ? hasty : 0;
+  for (const target of chosen ? chosen.targets : legalAttacks(state, stack.id)) {
     lines.push(
-      `Attack ${target.id}: ${strength(state, stack, false) + bonus} vs ${strength(state, target, true)} ` +
-        `(defender wins ties)`,
+      `${chosen ? 'Assault' : 'Attack'} ${target.id}: ${strength(state, stack, false) + bonusChoice - penalty} vs ` +
+        `${strength(state, target, true)} (a tie is a stalemate)${penalty ? ` - hasty -${penalty}` : ''}`,
     );
   }
+  if (!chosen && assaults.length) lines.push('Orange hexes: assault entries (step in, then attack).');
   infoPanel.innerHTML = lines.map((line) => `<div>${line}</div>`).join('');
 }
 
@@ -141,20 +188,38 @@ function drawOrder() {
   const active = state.active;
   orderPanel.hidden = !active;
   bonusEl.hidden = true;
+  modesEl.hidden = true;
   if (!active) return;
   const def = state.defs[active.card.type];
-  const max = maxBonus(state);
+  const pool = Boolean(active.menu);
+  const chosen = selectedId && chosenEntry(legalAssaults(state, selectedId));
+  const paying = Boolean(chosen) && payEntry;
+  if (!chosen) payEntry = false;
+  const max = maxBonus(state, paying);
   bonusChoice = Math.min(bonusChoice, max);
-  const left = active.extraCost ? ` (${active.points} offensive points left)` : '';
-  orderText.textContent = `${def.name}${left}: ${INSTRUCTIONS[active.kind]}`;
-  if (active.kind === 'attack' && max > 0 && !state.pending) {
-    bonusEl.hidden = false;
-    bonusEl.innerHTML = 'Spend on this attack: ' + Array.from({ length: max + 1 }, (_, n) =>
-      `<button data-bonus="${n}" class="${n === bonusChoice ? 'on' : ''}">+${n}</button>`).join('') +
-      (active.used.length === 0 && active.points >= active.extraCost
-        ? ` <small>(${active.extraCost} points buy an extra attack)</small>` : '');
+  const left = active.extraCost || pool ? ` (${active.points} points left)` : '';
+  const key = pool && active.mode ? `${active.kind}:${active.mode}` : active.kind;
+  orderText.textContent = `${def.name}${left}: ${INSTRUCTIONS[key] ?? INSTRUCTIONS[active.kind]}`;
+  if (pool && Object.keys(active.menu).length > 1) {
+    modesEl.hidden = false;
+    modesEl.innerHTML = Object.entries(active.menu).map(([mode, cost]) =>
+      `<button data-mode="${mode}" class="${mode === active.mode ? 'on' : ''}" ${active.points < cost ? 'disabled' : ''}>` +
+      `${MODE_LABELS[mode]} (${cost})</button>`).join(' ');
   }
-  endOrderButton.textContent = active.used.length ? 'Finish order' : 'Cancel order';
+  if (active.kind === 'attack' && !state.pending) {
+    const entryChoice = chosen && !active.freeEntry
+      ? `Entry: <button data-pay="0" class="${paying ? '' : 'on'}">Hasty -${state.assault.hastyPenalty} strength</button>` +
+        `<button data-pay="1" class="${paying ? 'on' : ''}" ${canPayEntry(state) ? '' : 'disabled'}>Pay ${state.assault.entryCost} points</button> `
+      : '';
+    if (entryChoice || max > 0) {
+      bonusEl.hidden = false;
+      bonusEl.innerHTML = entryChoice + (max > 0 ? 'Spend on this attack: ' + Array.from({ length: max + 1 }, (_, n) =>
+        `<button data-bonus="${n}" class="${n === bonusChoice ? 'on' : ''}">+${n}</button>`).join('') : '') +
+        (active.used.length === 0 && active.extraCost && active.points >= active.extraCost
+          ? ` <small>(${active.extraCost} points buy an extra attack)</small>` : '');
+    }
+  }
+  endOrderButton.textContent = active.acted || active.used.length ? 'Finish order' : 'Cancel order';
   endOrderButton.disabled = Boolean(state.pending);
 }
 
@@ -223,8 +288,7 @@ function attempt(action) {
   } catch (error) {
     state = { ...state, log: [...state.log, `Not allowed: ${error.message}`] };
   }
-  selectedId = null;
-  bonusChoice = 0;
+  resetPicks();
   draw();
 }
 
@@ -247,10 +311,18 @@ svg.addEventListener('click', (event) => {
   if (stackEl) {
     const id = stackEl.dataset.stack;
     const t = targetsFor(selectedId);
-    if (t.enemies.some((s) => s.id === id)) return attempt(() => attack(state, selectedId, id, bonusChoice));
+    if (t.enemies.some((s) => s.id === id)) {
+      const from = selectedId;
+      const chosen = chosenEntry(legalAssaults(state, from));
+      const paid = payEntry;
+      const bonus = bonusChoice;
+      return attempt(() => attack(state, from, id, bonus, chosen ? { col: chosen.col, row: chosen.row } : null, paid));
+    }
     if (t.friends.some((s) => s.id === id)) return attempt(() => mergeStacks(state, selectedId, id));
     const canUse = eligibleStacks(state).some((s) => s.id === id);
     if (canUse && isDirectOrder(state)) return attempt(() => applyToStack(state, id));
+    entry = null;
+    payEntry = false;
     selectedId = selectedId === id ? null : id;
     draw();
     return;
@@ -261,10 +333,17 @@ svg.addEventListener('click', (event) => {
     const col = Number(hexEl.dataset.col);
     const row = Number(hexEl.dataset.row);
     const id = selectedId;
-    if (inList(legalMoves(state, id), col, row)) return attempt(() => moveStack(state, id, col, row));
+    if (!state.active && inList(legalMoves(state, id), col, row)) return attempt(() => moveStack(state, id, col, row));
     if (inList(legalSplits(state, id), col, row)) return attempt(() => splitStack(state, id, col, row));
+    const entries = legalAssaults(state, id);
+    if (inList(entries, col, row)) {
+      const same = entry && entry.col === col && entry.row === row;
+      entry = same ? null : { col, row };
+      draw();
+      return;
+    }
   }
-  selectedId = null;
+  resetPicks();
   draw();
 });
 
@@ -276,11 +355,23 @@ handEl.addEventListener('click', (event) => {
 });
 
 bonusEl.addEventListener('click', (event) => {
+  const pay = event.target.closest('[data-pay]');
+  if (pay && !pay.disabled) payEntry = pay.dataset.pay === '1';
   const button = event.target.closest('[data-bonus]');
-  if (!button) return;
-  bonusChoice = Number(button.dataset.bonus);
+  if (button) bonusChoice = Number(button.dataset.bonus);
   draw();
 });
+
+modesEl.addEventListener('click', (event) => {
+  const button = event.target.closest('[data-mode]');
+  if (!button || button.disabled) return;
+  const mode = button.dataset.mode;
+  attempt(() => {
+    const next = chooseMode(state, mode);
+    return needsTarget(mode) ? next : applyPool(next, mode);
+  });
+});
+$('show-zoc').addEventListener('change', draw);
 $('hold').addEventListener('click', () => attempt(() => resolveHold(state)));
 endOrderButton.addEventListener('click', () => attempt(() => endOrder(state)));
 endTurnButton.addEventListener('click', () => {

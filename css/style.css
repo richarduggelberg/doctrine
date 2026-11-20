@@ -49,14 +49,18 @@ aside h2:first-child { margin-top: 0; }
 
 .hex { stroke: #0007; stroke-width: 1; cursor: default; fill: #7d8f5c; }
 .hex.target { fill: #d8c35a; cursor: pointer; }
+.hex.entry { fill: #e8924a; cursor: pointer; }
+.zoc { fill: #e0402e; fill-opacity: .16; pointer-events: none; }
+.swatch.zoc { background: #e0402e55; }
+.swatch.entry { background: #e8924a; }
 .swatch.terrain { background: #8a6a3a; border-radius: 50%; }
 .swatch.trench { background: #3b3b3b; border-radius: 50%; }
 .terrain-chip { fill: #8a6a3a; stroke: #2e2210; stroke-width: 1; }
 .trench-chip { fill: #3b3b3b; stroke: #000; stroke-width: 1; }
 .pile { pointer-events: none; }
-#bonus button.on { background: #d4af37; color: #000; }
-#bonus[hidden] { display: none; }
-#bonus { margin: .4rem 0; font-size: .9rem; }
+#bonus button.on, #modes button.on { background: #d4af37; color: #000; }
+#bonus[hidden], #modes[hidden] { display: none; }
+#bonus, #modes { margin: .4rem 0; font-size: .9rem; }
 
 .capital { font-size: 24px; pointer-events: none; fill: #fff; stroke: #000a; stroke-width: .6; }
 
@@ -66,6 +70,7 @@ aside h2:first-child { margin-top: 0; }
 .stack.owner-B .chip { fill: var(--b); }
 .stack .halo { fill: none; stroke: none; }
 .stack.eligible .halo { stroke: #7fd1ff; stroke-width: 2.5; stroke-dasharray: 2 3; }
+.stack.movable .halo { stroke: #fff; stroke-opacity: .55; stroke-width: 1.5; stroke-dasharray: 1 4; }
 .stack.braced .chip { stroke: #fff; stroke-width: 1.5; }
 .stack.spent .chip { opacity: 0.55; stroke-dasharray: 3 2; }
 .stack.selected .halo { stroke: #fff; stroke-width: 2.5; stroke-dasharray: none; }

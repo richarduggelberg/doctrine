@@ -19,8 +19,10 @@ export function renderBoard(svg, state, view) {
       const { x, y } = center(col, row, SIZE);
       const classes = ['hex'];
       if (targets.has(key(col, row))) classes.push('target');
+      if (view.entries.has(key(col, row))) classes.push('entry');
       const points = corners(x, y, SIZE - 1);
       parts.push(`<polygon class="${classes.join(' ')}" data-col="${col}" data-row="${row}" points="${points}"/>`);
+      if (view.zoc.has(key(col, row))) parts.push(`<polygon class="zoc" points="${points}"/>`);
       parts.push(`<polygon class="tint tint-${territoryOf(state, col)}" points="${points}"/>`);
       const home = territoryOf(state, col);
       const crossing = edgeSegments(col, row, SIZE, (c, r) => c >= 0 && c < state.cols && territoryOf(state, c) !== home);
@@ -72,6 +74,7 @@ export function renderBoard(svg, state, view) {
     if (stack.braced) classes.push('braced');
     if (stack.spent) classes.push('spent');
     if (view.eligible.has(stack.id)) classes.push('eligible');
+    if (view.movable.has(stack.id)) classes.push('movable');
     if (stack.id === view.selectedId) classes.push('selected');
     if (view.enemyTargets.has(stack.id)) classes.push('attackable');
     if (view.friendTargets.has(stack.id)) classes.push('mergeable');
