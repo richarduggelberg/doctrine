@@ -30,7 +30,6 @@ export function renderBoard(svg, state, view) {
       const features = featuresAt(state, col, row);
       const classes = ['hex', FILL_ORDER.find((f) => features.includes(f)) ?? 'open'];
       if (targets.has(key(col, row))) classes.push('target');
-      if (view.entries.has(key(col, row))) classes.push('entry');
       parts.push(`<polygon class="${classes.join(' ')}" data-col="${col}" data-row="${row}" points="${points}"/>`);
       if (view.zoc.has(key(col, row))) parts.push(`<polygon class="zoc" points="${points}"/>`);
       const home = countryAt(state, col, row) ?? territoryOf(state, col, row);

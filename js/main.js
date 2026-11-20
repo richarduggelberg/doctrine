@@ -1,8 +1,8 @@
 import {
-  applyPool, applyToStack, attack, breakScore, canPayEntry, cardIssue, cardText, chooseMode, createGame, discardCard,
-  doctrineLevel, eligibleStacks, endOrder, endTurn, getStack, inEnemyZoc, isCutOff, isDirectOrder, legalAssaults, legalAttacks,
-  legalMerges, legalMoves, legalSplits, mergeStacks, moveStack, maxBonus, needsTarget, playCard, resolveHold,
-  resolveRetreat, retreatOptions, splitStack, strength, terrainBonus, featuresAt,
+  applyPool, applyToStack, attack, breakScore, cardIssue, cardText, chooseMode, createGame, discardCard,
+  doctrineLevel, eligibleStacks, endOrder, endTurn, getStack, inEnemyZoc, isCutOff, isDirectOrder, isFace, legalAttacks,
+  legalMerges, legalMoves, legalSplits, mergeStacks, moveStack, maxBonus, needsTarget, orderInfo, pairIssue, playCard,
+  rankLabel, resolveHold, resolveRetreat, retreatOptions, splitStack, strength, terrainBonus, featuresAt,
 } from './engine.js';
 import { renderBoard } from './render.js';
 
@@ -34,10 +34,11 @@ const coverText = $('cover-text');
 const overPanel = $('over');
 
 const INSTRUCTIONS = {
-  attack: 'Select a highlighted stack, then a red-dashed adjacent enemy, or an orange entry hex to assault (step in and attack).',
-  hold: 'Click a highlighted stack to dig it in.',
-  fortify: 'Click a highlighted stack to add a trench chip to its hex.',
-  'logistics:rail': 'Click a highlighted stack: it may step 1 more hex this turn.',
+  attack: 'Select a highlighted stack, then click a red-dashed adjacent enemy to attack it.',
+  'defend:trench': 'Click a highlighted stack to add a trench chip to its hex.',
+  'defend:brace': 'Click a highlighted stack to brace it (extra defence until it moves).',
+  defend: 'Choose what to spend points on.',
+  'logistics:rail': 'Click a highlighted stack: it may walk further this turn.',
   'logistics:rally': 'Click a highlighted stack to give it 1 gear.',
   'logistics:merge': 'Select a highlighted stack, then a green-dashed adjacent friendly stack to merge into.',
   'logistics:split': 'Select a highlighted stack, then an empty adjacent hex to send half of it there.',
@@ -47,8 +48,8 @@ const INSTRUCTIONS = {
 };
 
 const MODE_LABELS = {
-  fortify: 'Trench', rail: 'Rail +1 hex', rally: 'Rally +1 gear', merge: 'Merge', split: 'Split',
-  propaganda: 'Propaganda +1 resolve', relief: 'Relief -2 weariness', recruit: 'Recruit +1 man',
+  trench: 'Trench', brace: 'Brace', rail: 'Rail', rally: 'Rally +1 gear', merge: 'Merge', split: 'Split',
+  propaganda: 'Propaganda', relief: 'Relief', recruit: 'Recruit +1 man',
 };
 
 let map;
@@ -56,9 +57,8 @@ let config;
 let state;
 let selectedId = null;
 let bonusChoice = 0;
-// An assault first steps into an entry hex; paying 2 points avoids the hasty -2 strength penalty.
-let entry = null;
-let payEntry = false;
+// First card of a pair being assembled from the hand.
+let pairUid = null;
 // The hand stays hidden after a turn ends until the next player takes the device.
 let covered = false;
 
@@ -73,8 +73,7 @@ async function start() {
 function resetPicks() {
   selectedId = null;
   bonusChoice = 0;
-  entry = null;
-  payEntry = false;
+  pairUid = null;
 }
 
 function newGame() {
@@ -86,19 +85,11 @@ function newGame() {
   draw();
 }
 
-// The entry hex chosen for an assault, if it is still valid for the selected stack.
-function chosenEntry(assaults) {
-  return entry && assaults.find((e) => e.col === entry.col && e.row === entry.row);
-}
-
 function targetsFor(id) {
-  if (!id || state.pending) return { hexes: [], entries: [], enemies: [], friends: [] };
-  const assaults = legalAssaults(state, id);
-  const chosen = chosenEntry(assaults);
+  if (!id || state.pending) return { hexes: [], enemies: [], friends: [] };
   return {
     hexes: [...(state.active ? [] : legalMoves(state, id)), ...legalSplits(state, id)],
-    entries: chosen ? [chosen] : assaults,
-    enemies: chosen ? chosen.targets : legalAttacks(state, id),
+    enemies: legalAttacks(state, id),
     friends: legalMerges(state, id),
   };
 }
@@ -121,7 +112,6 @@ function draw() {
   renderBoard(svg, state, {
     selectedId,
     targets: pending ? retreatOptions(state) : t.hexes,
-    entries: new Set(t.entries.map((e) => `${e.col},${e.row}`)),
     zoc: enemyZone(),
     movable: new Set(mover ? state.stacks.filter((s) => legalMoves(state, s.id).length > 0).map((s) => s.id) : []),
     enemyTargets: new Set(t.enemies.map((s) => s.id)),
@@ -148,26 +138,18 @@ function draw() {
 function drawInfo() {
   const stack = selectedId && getStack(state, selectedId);
   if (!stack) {
-    infoPanel.textContent = 'Play a card from your hand, then use the highlighted stacks. Without an order you can still step a stack 1 hex (dotted halo) outside enemy zones.';
+    infoPanel.textContent = `Play a card from your hand, then use the highlighted stacks. Without an order every stack can walk ${state.move} hexes (dotted halo); entering an enemy zone is free but ends the walk.`;
     return;
   }
   const lines = [
     `${stack.id}${stack.army ? ` (${stack.army})` : ''}: ${stack.men} men chips${state.menPerChip ? ` (~${(stack.men * state.menPerChip).toLocaleString('en-US')} soldiers)` : ''} + ${stack.gear} gear on ${describeTerrain(stack.col, stack.row)} ` +
       `(${stack.col},${stack.row}). Defends at ${strength(state, stack, true)}.` +
-      `${stack.fought ? ' Fought this turn: cannot step.' : stack.moved ? ' Already stepped this turn.' : ''}` +
+      `${stack.fought ? ' Fought this turn: cannot walk.' : stack.halted ? ' Halted in an enemy zone.' : stack.moved ? ` Walked ${stack.moved} hex(es) this turn.` : ''}` +
       `${isCutOff(state, stack) ? ' CUT OFF: no supply path home, it can do nothing.' : ''}`,
   ];
-  const assaults = legalAssaults(state, stack.id);
-  const chosen = chosenEntry(assaults);
-  const hasty = state.assault.hastyPenalty;
-  const penalty = chosen && !state.active.freeEntry && !payEntry ? hasty : 0;
-  for (const target of chosen ? chosen.targets : legalAttacks(state, stack.id)) {
-    lines.push(
-      `${chosen ? 'Assault' : 'Attack'} ${target.id}: ${strength(state, stack, false) + bonusChoice - penalty} vs ` +
-        `${strength(state, target, true)} (a tie is a stalemate)${penalty ? ` - hasty -${penalty}` : ''}`,
-    );
+  for (const target of legalAttacks(state, stack.id)) {
+    lines.push(`Attack ${target.id}: ${strength(state, stack, false) + bonusChoice} vs ${strength(state, target, true)} (a tie is a stalemate)`);
   }
-  if (!chosen && assaults.length) lines.push('Orange hexes: assault entries (step in, then attack).');
   infoPanel.innerHTML = lines.map((line) => `<div>${line}</div>`).join('');
 }
 
@@ -185,7 +167,7 @@ function drawStatus() {
   const theirs = state.doctrine[other].public ? doctrineText(other) : 'secret';
   statusLine.textContent =
     `Doctrine ${state.current}: ${own} | Doctrine ${other}: ${theirs} | Plays left: ${state.cardsPerTurn - state.played} | ` +
-    `Discard: ${state.discardUsed ? 'used' : 'available'} | Deck: ${state.deck.length} | ` +
+    `Discard: ${state.discardUsed ? 'used' : 'available'} | Deck: ${state.decks[state.current].length} | ` +
     `Player ${other} holds ${state.hands[other].length} cards | ` +
     `Break score A ${breakScore(state, 'A')}, B ${breakScore(state, 'B')} (thresholds hidden) | ` +
     `Weariness A ${state.weariness.A}, B ${state.weariness.B}` +
@@ -198,34 +180,25 @@ function drawOrder() {
   bonusEl.hidden = true;
   modesEl.hidden = true;
   if (!active) return;
-  const def = state.defs[active.card.type];
   const pool = Boolean(active.menu);
-  const chosen = selectedId && chosenEntry(legalAssaults(state, selectedId));
-  const paying = Boolean(chosen) && payEntry;
-  if (!chosen) payEntry = false;
-  const max = maxBonus(state, paying);
+  const max = maxBonus(state);
   bonusChoice = Math.min(bonusChoice, max);
   const left = active.extraCost || pool ? ` (${active.points} points left)` : '';
   const key = pool && active.mode ? `${active.kind}:${active.mode}` : active.kind;
-  orderText.textContent = `${def.name}${left}: ${INSTRUCTIONS[key] ?? INSTRUCTIONS[active.kind]}`;
+  const info = orderInfo(state, state.current, active.cards);
+  orderText.textContent = `${info.face?.name ?? info.def.name}${left}: ${INSTRUCTIONS[key] ?? INSTRUCTIONS[active.kind]}`;
   if (pool && Object.keys(active.menu).length > 1) {
     modesEl.hidden = false;
     modesEl.innerHTML = Object.entries(active.menu).map(([mode, cost]) =>
       `<button data-mode="${mode}" class="${mode === active.mode ? 'on' : ''}" ${active.points < cost ? 'disabled' : ''}>` +
       `${MODE_LABELS[mode]} (${cost})</button>`).join(' ');
   }
-  if (active.kind === 'attack' && !state.pending) {
-    const entryChoice = chosen && !active.freeEntry
-      ? `Entry: <button data-pay="0" class="${paying ? '' : 'on'}">Hasty -${state.assault.hastyPenalty} strength</button>` +
-        `<button data-pay="1" class="${paying ? 'on' : ''}" ${canPayEntry(state) ? '' : 'disabled'}>Pay ${state.assault.entryCost} points</button> `
-      : '';
-    if (entryChoice || max > 0) {
-      bonusEl.hidden = false;
-      bonusEl.innerHTML = entryChoice + (max > 0 ? 'Spend on this attack: ' + Array.from({ length: max + 1 }, (_, n) =>
-        `<button data-bonus="${n}" class="${n === bonusChoice ? 'on' : ''}">+${n}</button>`).join('') : '') +
-        (active.used.length === 0 && active.extraCost && active.points >= active.extraCost
-          ? ` <small>(${active.extraCost} points buy an extra attack)</small>` : '');
-    }
+  if (active.kind === 'attack' && !state.pending && max > 0) {
+    bonusEl.hidden = false;
+    bonusEl.innerHTML = 'Spend on this attack: ' + Array.from({ length: max + 1 }, (_, n) =>
+      `<button data-bonus="${n}" class="${n === bonusChoice ? 'on' : ''}">+${n}</button>`).join('') +
+      (active.used.length === 0 && active.extraCost && active.points >= active.extraCost
+        ? ` <small>(${active.extraCost} points buy an extra attack)</small>` : '');
   }
   endOrderButton.textContent = active.acted || active.used.length ? 'Finish order' : 'Cancel order';
   endOrderButton.disabled = Boolean(state.pending);
@@ -270,19 +243,26 @@ function drawHand() {
     handEl.innerHTML = '';
     return;
   }
-  handTitle.textContent = `Player ${state.current}'s hand`;
+  handTitle.textContent = pairUid
+    ? `Player ${state.current}'s hand - pick a second ${state.orders[hand.find((c) => c.uid === pairUid)?.suit]?.name ?? ''} card to pair (or click the first again to cancel)`
+    : `Player ${state.current}'s hand`;
   handEl.innerHTML = hand
     .map((card) => {
-      const def = state.defs[card.type];
-      const issue = cardIssue(state, card);
+      const { def, tier } = orderInfo(state, state.current, [card]);
+      const first = hand.find((c) => c.uid === pairUid);
+      let issue = cardIssue(state, card);
+      if (first) issue = card.uid === pairUid ? null : pairIssue(state, first, card);
+      const canPair = !pairUid && !isFace(card.rank) &&
+        hand.some((c) => c.uid !== card.uid && pairIssue(state, card, c) === null);
       return (
         `<div class="card-wrap">` +
-        `<button class="card suit-${def.suit}" data-uid="${card.uid}" ${issue ? 'disabled' : ''} ` +
+        `<button class="card suit-${card.suit}${card.uid === pairUid ? ' picked' : ''}" data-uid="${card.uid}" ${issue ? 'disabled' : ''} ` +
         `title="${issue ?? 'Play this card'}">` +
+        `<span class="card-rank">${rankLabel(card.rank)}<span class="card-pip">${def.symbol}</span></span>` +
         `<span class="card-name">${def.name}</span>` +
-        `<span class="card-suit">${config.symbols[def.suit]} ${def.suit}` +
-        `${def.suit === 'general' ? '' : ` · L${doctrineLevel(state, state.current, def.suit)}`}</span>` +
-        `<span class="card-text">${cardText(state, state.current, def)}</span></button>` +
+        `<span class="card-suit">tier ${tier} · L${doctrineLevel(state, state.current, card.suit)}</span>` +
+        `<span class="card-text">${cardText(state, state.current, [card])}</span></button>` +
+        `<button class="pair" data-pair="${card.uid}" ${canPair ? '' : 'disabled'}>Pair</button>` +
         `<button class="discard" data-discard="${card.uid}" ${state.discardUsed || state.pending ? 'disabled' : ''}>` +
         `Discard</button></div>`
       );
@@ -321,16 +301,12 @@ svg.addEventListener('click', (event) => {
     const t = targetsFor(selectedId);
     if (t.enemies.some((s) => s.id === id)) {
       const from = selectedId;
-      const chosen = chosenEntry(legalAssaults(state, from));
-      const paid = payEntry;
       const bonus = bonusChoice;
-      return attempt(() => attack(state, from, id, bonus, chosen ? { col: chosen.col, row: chosen.row } : null, paid));
+      return attempt(() => attack(state, from, id, bonus));
     }
     if (t.friends.some((s) => s.id === id)) return attempt(() => mergeStacks(state, selectedId, id));
     const canUse = eligibleStacks(state).some((s) => s.id === id);
     if (canUse && isDirectOrder(state)) return attempt(() => applyToStack(state, id));
-    entry = null;
-    payEntry = false;
     selectedId = selectedId === id ? null : id;
     draw();
     return;
@@ -343,13 +319,6 @@ svg.addEventListener('click', (event) => {
     const id = selectedId;
     if (!state.active && inList(legalMoves(state, id), col, row)) return attempt(() => moveStack(state, id, col, row));
     if (inList(legalSplits(state, id), col, row)) return attempt(() => splitStack(state, id, col, row));
-    const entries = legalAssaults(state, id);
-    if (inList(entries, col, row)) {
-      const same = entry && entry.col === col && entry.row === row;
-      entry = same ? null : { col, row };
-      draw();
-      return;
-    }
   }
   resetPicks();
   draw();
@@ -357,14 +326,22 @@ svg.addEventListener('click', (event) => {
 
 handEl.addEventListener('click', (event) => {
   const play = event.target.closest('[data-uid]');
+  const pair = event.target.closest('[data-pair]');
   const discard = event.target.closest('[data-discard]');
-  if (play && !play.disabled) attempt(() => playCard(state, play.dataset.uid));
-  else if (discard && !discard.disabled) attempt(() => discardCard(state, discard.dataset.discard));
+  if (pair && !pair.disabled) {
+    pairUid = pair.dataset.pair;
+    draw();
+  } else if (play && !play.disabled) {
+    const first = pairUid;
+    if (first && play.dataset.uid === first) {
+      pairUid = null;
+      draw();
+    } else if (first) attempt(() => playCard(state, first, play.dataset.uid));
+    else attempt(() => playCard(state, play.dataset.uid));
+  } else if (discard && !discard.disabled) attempt(() => discardCard(state, discard.dataset.discard));
 });
 
 bonusEl.addEventListener('click', (event) => {
-  const pay = event.target.closest('[data-pay]');
-  if (pay && !pay.disabled) payEntry = pay.dataset.pay === '1';
   const button = event.target.closest('[data-bonus]');
   if (button) bonusChoice = Number(button.dataset.bonus);
   draw();

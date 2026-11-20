@@ -58,14 +58,12 @@ aside h2:first-child { margin-top: 0; }
 .hex.bigcity { fill: #b3aea2; }
 .hex.sea { fill: #2c5a82; stroke: #0004; pointer-events: none; }
 .hex.target { fill: #d8c35a; cursor: pointer; }
-.hex.entry { fill: #e8924a; cursor: pointer; }
 .place { font-size: 14px; fill: #fff; fill-opacity: .85; pointer-events: none; paint-order: stroke; stroke: #000b; stroke-width: 3px; }
 .country { font-size: 20px; font-weight: bold; letter-spacing: 4px; fill: #fff; fill-opacity: .4; pointer-events: none; }
 .river { fill: none; stroke: #4a90d0; stroke-width: 4; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
 .river.big { stroke: #2a62b0; stroke-width: 9; }
 .zoc { fill: #e0402e; fill-opacity: .16; pointer-events: none; }
 .swatch.zoc { background: #e0402e55; }
-.swatch.entry { background: #e8924a; }
 .swatch.terrain { background: #8a6a3a; border-radius: 50%; }
 .swatch.trench { background: #3b3b3b; border-radius: 50%; }
 .swatch.rough { background: #66743f; }
@@ -147,13 +145,16 @@ aside h2:first-child { margin-top: 0; }
 .card .card-name { font-weight: 700; }
 .card .card-suit { font-size: .75rem; text-transform: capitalize; }
 .card .card-text { font-size: .75rem; }
-.card.suit-general { border-color: #777; }
+.card .card-rank { font-size: 1.4rem; font-weight: 700; line-height: 1; }
+.card .card-pip { margin-left: .2rem; }
+.card.suit-aggressive .card-pip, .card.suit-willingness .card-pip { color: #c0392b; }
+.card.picked { box-shadow: 0 0 0 3px #7fd1ff; }
 .card.suit-aggressive { border-color: #c0392b; }
 .card.suit-defensive { border-color: #2e6fbf; }
 .card.suit-reorganizational { border-color: #b8860b; }
 .card.suit-willingness { border-color: #2e8b57; }
-.discard { font-size: .75rem; padding: .15rem .4rem; }
-.discard:disabled { opacity: .4; cursor: not-allowed; }
+.discard, .pair { font-size: .75rem; padding: .15rem .4rem; }
+.discard:disabled, .pair:disabled { opacity: .4; cursor: not-allowed; }
 .hand-title { padding: .3rem .5rem 0; font-size: .85rem; text-transform: uppercase; letter-spacing: .08em; opacity: .7; }
 
 #cover { background: #2a2a2a; border: 2px dashed #888; border-radius: 6px; padding: 1.2rem; margin: .5rem; text-align: center; }

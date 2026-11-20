@@ -1,9 +1,9 @@
 // Bot-vs-bot balance check: node tools/simulate.mjs [games] [maxTurns] [slackPerWeariness]
 import { readFileSync } from 'node:fs';
 import {
-  applyPool, applyToStack, attack, canPayEntry, cardIssue, chooseMode, createGame, discardCard, eligibleStacks,
-  endOrder, endTurn, fortification, getStack, inEnemyZoc, legalAssaults, legalAttacks, legalMerges, legalMoves,
-  maxBonus, mergeStacks, moveStack, playCard, resolveHold, resolveRetreat, retreatOptions, strength,
+  applyPool, applyToStack, attack, cardIssue, chooseMode, createGame, discardCard, eligibleStacks,
+  endOrder, endTurn, fortification, getStack, isFace, legalAttacks, legalMerges, legalMoves,
+  maxBonus, mergeStacks, moveStack, pairIssue, playCard, resolveHold, resolveRetreat, retreatOptions, strength,
 } from '../js/engine.js';
 import { distance } from '../js/hex.js';
 
@@ -37,28 +37,18 @@ function decide(state) {
   return resolveHold(state);
 }
 
-// The cheapest attack the order's points can turn into an upper hand, direct or by assault. A weary
-// nation also launches hopeless attacks (up to `slack` short), to bleed the enemy rather than sit still.
+// The cheapest attack the order's points can turn into an upper hand. A weary nation also launches
+// hopeless attacks (up to `slack` short), to bleed the enemy rather than sit still.
 function bestAttack(state, slack) {
   let best = null;
-  const consider = (stack, target, entry, pay) => {
-    if (pay && !canPayEntry(state)) return;
-    const hasty = entry && !state.active.freeEntry && !pay ? state.assault.hastyPenalty : 0;
-    const cap = maxBonus(state, Boolean(entry) && pay);
-    const need = strength(state, target, true) - (strength(state, stack, false) - hasty) + 1;
-    if (need > cap + slack) return;
-    const bonus = Math.min(Math.max(0, need), cap);
-    const spent = bonus + (pay ? state.assault.entryCost : 0);
-    const score = (need <= cap ? 100 : 0) - spent * 10 - strength(state, target, true);
-    if (!best || score > best.score) best = { stack, target, bonus, entry, pay, score };
-  };
+  const cap = maxBonus(state);
   for (const stack of eligibleStacks(state)) {
-    for (const target of legalAttacks(state, stack.id)) consider(stack, target, null, false);
-    for (const entry of legalAssaults(state, stack.id)) {
-      for (const target of entry.targets) {
-        consider(stack, target, { col: entry.col, row: entry.row }, false);
-        consider(stack, target, { col: entry.col, row: entry.row }, true);
-      }
+    for (const target of legalAttacks(state, stack.id)) {
+      const need = strength(state, target, true) - strength(state, stack, false) + 1;
+      if (need > cap + slack) continue;
+      const bonus = Math.min(Math.max(0, need), cap);
+      const score = (need <= cap ? 100 : 0) - bonus * 10 - strength(state, target, true);
+      if (!best || score > best.score) best = { stack, target, bonus, score };
     }
   }
   return best;
@@ -70,11 +60,16 @@ function poolStep(state) {
   const owner = state.current;
   const menu = a.menu;
   const front = (s) => isFront(state, s);
-  if (a.kind === 'fortify') {
-    const target = eligibleStacks(state)
-      .filter(front)
-      .sort((x, y) => fortification(state, x.col, x.row) - fortification(state, y.col, y.row) || y.men - x.men)[0];
-    return target ? applyToStack(state, target.id) : null;
+  if (a.kind === 'defend') {
+    for (const mode of ['trench', 'brace']) {
+      if (a.points < menu[mode]) continue;
+      const choosing = chooseMode(state, mode);
+      const target = eligibleStacks(choosing)
+        .filter(front)
+        .sort((x, y) => fortification(state, x.col, x.row) - fortification(state, y.col, y.row) || y.men - x.men)[0];
+      if (target) return applyToStack(choosing, target.id);
+    }
+    return null;
   }
   if (a.kind === 'logistics') {
     if (a.points >= menu.merge) {
@@ -103,45 +98,62 @@ function poolStep(state) {
 
 // Use the active order sensibly; null if nothing is worthwhile.
 function act(state) {
-  const kind = state.active.kind;
-  if (kind === 'attack') {
+  if (state.active.kind === 'attack') {
     const pick = bestAttack(state, Math.floor(state.weariness[state.current] / SLACK_PER_WEARINESS));
     if (!pick) return null;
-    const next = attack(state, pick.stack.id, pick.target.id, pick.bonus, pick.entry, pick.pay);
+    const next = attack(state, pick.stack.id, pick.target.id, pick.bonus);
     return next.pending ? decide(next) : next;
-  }
-  if (kind === 'hold') {
-    const target = eligibleStacks(state).filter((s) => inEnemyZoc(state, state.current, s.col, s.row) || isFront(state, s))[0];
-    return target ? applyToStack(state, target.id) : null;
   }
   return poolStep(state);
 }
 
-// Reserves without a trench walk toward the enemy (or its capital) whenever the way is outside enemy zones.
+// Reserves walk toward the enemy (or its capital); trenched stacks only leave their trench when the hand holds an
+// offensive card to follow the walk up with an attack.
 function freeMoves(state) {
   const enemyCap = state.capitals[state.current === 'A' ? 'B' : 'A'];
+  const offensive = state.hands[state.current].some((c) => c.suit === 'aggressive');
   for (const { id } of state.stacks.filter((s) => s.owner === state.current)) {
-    const stack = getStack(state, id);
-    if (fortification(state, stack.col, stack.row) > 0) continue;
-    const goal = (hex) => (nearestEnemy(state, hex) <= 4 ? nearestEnemy(state, hex) : distance(hex, enemyCap));
-    const best = legalMoves(state, id).sort((a, b) => goal(a) - goal(b))[0];
-    if (best && goal(best) < goal(stack)) state = moveStack(state, id, best.col, best.row);
+    for (let step = 0; step < state.move; step++) {
+      const stack = getStack(state, id);
+      if (fortification(state, stack.col, stack.row) > 0 && !(offensive && stack.men >= 3)) break;
+      const goal = (hex) => (nearestEnemy(state, hex) <= 4 ? nearestEnemy(state, hex) : distance(hex, enemyCap));
+      const best = legalMoves(state, id).sort((a, b) => goal(a) - goal(b))[0];
+      if (!best || goal(best) >= goal(stack)) break;
+      state = moveStack(state, id, best.col, best.row);
+    }
   }
   return state;
 }
 
-const PRIORITY = ['counter', 'offensive', 'attack', 'fortify', 'logistics', 'homefront', 'posture', 'elastic', 'hold'];
+const PRIORITY = ['aggressive', 'defensive', 'reorganizational', 'willingness'];
+
+// Candidate plays: a pair of same-suit number cards (strongest first) or single cards by suit then rank.
+function candidates(state) {
+  const hand = state.hands[state.current];
+  const singles = hand
+    .filter((c) => cardIssue(state, c) === null)
+    .sort((a, b) => PRIORITY.indexOf(a.suit) - PRIORITY.indexOf(b.suit) || b.rank - a.rank)
+    .map((c) => [c.uid]);
+  const pairs = [];
+  if (state.played === 0) {
+    for (const x of hand) {
+      for (const y of hand) {
+        if (x.uid < y.uid && x.suit === y.suit && !isFace(x.rank) && !isFace(y.rank) && pairIssue(state, x, y) === null) {
+          pairs.push([x.uid, y.uid]);
+        }
+      }
+    }
+  }
+  return [...pairs.filter(([u]) => state.hands[state.current].find((c) => c.uid === u).suit === 'aggressive'), ...singles];
+}
 
 function takeTurn(state) {
   state = freeMoves(state);
   let anyActed = false;
-  for (let play = 0; play < state.cardsPerTurn && !state.over; play++) {
-    const hand = state.hands[state.current]
-      .filter((c) => cardIssue(state, c) === null && PRIORITY.includes(c.type))
-      .sort((a, b) => PRIORITY.indexOf(a.type) - PRIORITY.indexOf(b.type));
+  for (let guard = 0; guard < 4 && state.played < state.cardsPerTurn && !state.over; guard++) {
     let acted = false;
-    for (const card of hand) {
-      let current = playCard(state, card.uid);
+    for (const uids of candidates(state)) {
+      let current = playCard(state, ...uids);
       let did = !current.active;
       while (current.active && !current.over) {
         const next = act(current);
@@ -188,7 +200,7 @@ for (let seed = 1; seed <= games; seed++) {
 
 // STATS=1 prints how often each kind of event occurred across all games.
 if (process.env.STATS) {
-  const kinds = ['moved', 'assaults', 'hasty', 'Trench built', 'rallies', 'merges', 'splits', 'rail', 'propaganda', 'relief',
+  const kinds = ['moved', 'Trench built', 'digs in', 'rallies', 'merges', 'splits', 'rail', 'propaganda', 'relief',
     'recruit', 'retreats', 'stands', 'upper hand', 'repels', 'stalemate', 'advances'];
   const lines = results.flatMap((r) => r.log);
   console.log(Object.fromEntries(kinds.map((k) => [k, lines.filter((l) => l.includes(k)).length])));

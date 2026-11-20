@@ -1,17 +1,18 @@
 {
   "handSize": 5,
   "cardsPerTurn": 2,
+  "move": 2,
   "symbols": {
-    "general": "★",
     "aggressive": "♠",
     "defensive": "♣",
     "reorganizational": "♦",
     "willingness": "♥"
   },
+  "suits": { "S": "aggressive", "C": "defensive", "D": "reorganizational", "H": "willingness" },
+  "doctrineShift": [-2, -1, 0, 1],
   "surrender": {
-    "count": 3,
-    "thresholdMin": 14,
-    "thresholdMax": 20,
+    "thresholdMin": 40,
+    "thresholdMax": 56,
     "battleWeight": 2,
     "homeHexWeight": 1,
     "capitalWeight": 3,
@@ -19,57 +20,69 @@
     "publicResolve": 2
   },
   "maxLevel": 3,
-  "assault": { "entryCost": 2, "hastyPenalty": 2 },
   "doctrine": {
     "A": { "public": true, "cards": { "aggressive": 3, "reorganizational": 2, "defensive": 1, "willingness": 0 } },
     "B": { "public": true, "cards": { "defensive": 3, "willingness": 2, "reorganizational": 1, "aggressive": 0 } }
   },
-  "levels": {
+  "orders": {
     "aggressive": {
-      "points": [0, 1, 2, 3]
+      "name": "Offensive",
+      "kind": "attack",
+      "points": [0, 2, 3, 4, 5, 6],
+      "extraCost": 2,
+      "text": "One stack attacks an adjacent enemy for free. {points} points: +1 strength each, or {extraCost} for another attack.",
+      "faces": {
+        "J": { "name": "Surprise", "fx": { "ignoreTrenches": true }, "text": "Trench chips do not count for the defender." },
+        "Q": { "name": "Combined arms", "fx": { "extraCost": 1 }, "text": "Extra attacks cost only 1 point." },
+        "K": { "name": "No quarter", "fx": { "noRetreat": true }, "text": "A beaten defender cannot retreat." },
+        "A": { "name": "Breakthrough", "fx": { "breakthrough": true }, "text": "A winner is not spent, and the loser loses 1 more man." }
+      }
     },
     "defensive": {
-      "trench": [1, 2, 3, 3],
-      "posture": [1, 1, 2, 3],
-      "fortify": [1, 2, 2, 3],
-      "counter": [0, 1, 1, 2]
+      "name": "Defence",
+      "kind": "defend",
+      "points": [1, 2, 2, 3, 4, 4],
+      "limit": [1, 2, 2, 3, 3, 3],
+      "braceAmount": 1,
+      "menu": { "trench": 1, "brace": 1 },
+      "text": "{points} points: a trench chip (+1 defence, max {limit} per hex) or +{braceAmount} defence until your next turn, on a stack.",
+      "faces": {
+        "J": { "name": "Elastic defence", "fx": { "elastic": true }, "text": "Your retreats are free until your next turn." },
+        "Q": { "name": "Reserves", "fx": { "posture": 1 }, "text": "All your stacks get +1 defence until your next turn." },
+        "K": { "name": "Iron wall", "fx": { "braceAmount": 2, "limitBonus": 1 }, "text": "Bracing gives +2, trenches may be one deeper." },
+        "A": { "name": "Hold the line", "fx": { "elastic": true, "posture": 1, "braceAmount": 2, "limitBonus": 1 }, "text": "Elastic defence, +1 defence for all, bracing +2, deeper trenches." }
+      }
     },
     "reorganizational": {
-      "logistics": [1, 2, 2, 3],
-      "rallyLimit": [1, 2, 3, 3],
-      "splitGear": [0, 0, 0, 1]
+      "name": "Logistics",
+      "kind": "logistics",
+      "points": [1, 2, 2, 3, 4, 4],
+      "limit": [1, 2, 3, 3, 3, 3],
+      "gear": [0, 0, 0, 1, 1, 1],
+      "railHexes": 2,
+      "menu": { "rail": 1, "rally": 2, "merge": 1, "split": 1 },
+      "text": "{points} points: rail +{railHexes} hexes of movement (1), rally +1 gear up to {limit} (2), merge adjacent stacks (1), split a stack (1).",
+      "faces": {
+        "J": { "name": "Rail net", "fx": { "railHexes": 3 }, "text": "Rail gives +3 hexes." },
+        "Q": { "name": "Staff work", "fx": { "bonusPoints": 2 }, "text": "2 extra points." },
+        "K": { "name": "Depots", "fx": { "costs": { "rally": 1 }, "limitBonus": 1 }, "text": "Rallying costs 1 and may go one higher." },
+        "A": { "name": "Mobilisation", "fx": { "railHexes": 3, "bonusPoints": 2, "costs": { "rally": 1 }, "limitBonus": 1 }, "text": "Rail +3, 2 extra points, cheap rallies." }
+      }
     },
     "willingness": {
-      "homefront": [2, 3, 3, 4]
+      "name": "Home Front",
+      "kind": "homefront",
+      "points": [2, 3, 3, 4, 5, 5],
+      "propaganda": 1,
+      "relief": 2,
+      "menu": { "propaganda": 1, "relief": 1, "recruit": 2 },
+      "text": "{points} points: propaganda +{propaganda} resolve (1), relief -{relief} war weariness (1), recruit +1 man in a home stack (2).",
+      "faces": {
+        "J": { "name": "Propaganda drive", "fx": { "propaganda": 2 }, "text": "Propaganda gives +2 resolve." },
+        "Q": { "name": "Relief effort", "fx": { "relief": 4 }, "text": "Relief removes 4 war weariness." },
+        "K": { "name": "Conscription", "fx": { "costs": { "recruit": 1 } }, "text": "Recruits cost 1 point." },
+        "A": { "name": "Total war", "fx": { "propaganda": 2, "relief": 4, "costs": { "recruit": 1 } }, "text": "All three: strong propaganda and relief, cheap recruits." }
+      }
     }
-  },
-  "cards": [
-    { "id": "attack", "name": "Basic Attack", "suit": "general", "kind": "attack", "count": 8,
-      "text": "One stack attacks an adjacent enemy stack. Stepping into an enemy zone first is a hasty assault: -2 strength." },
-    { "id": "hold", "name": "Hold", "suit": "general", "kind": "hold", "count": 3,
-      "text": "One stack digs in: +1 defense until your next turn." },
-
-    { "id": "offensive", "name": "Offensive", "suit": "aggressive", "kind": "attack", "points": "points", "extraCost": 2, "count": 6,
-      "text": "{points} offensive points: +1 strength each, 2 to assault without the hasty penalty, or 2 for an extra attack (the first attack is free)." },
-
-    { "id": "fortify", "name": "Fortify", "suit": "defensive", "kind": "fortify", "points": "fortify", "limit": "trench",
-      "menu": { "fortify": 1 }, "count": 4,
-      "text": "{points} points: each adds a trench chip (+1 defense, max {limit} per hex) to a stack's hex. Spread them or pile them up." },
-    { "id": "posture", "name": "Defensive Posture", "suit": "defensive", "kind": "posture", "amount": "posture", "count": 2,
-      "text": "All your stacks get +{amount} defense until your next turn." },
-    { "id": "elastic", "name": "Elastic Defence", "suit": "defensive", "kind": "elastic", "count": 2,
-      "text": "Until your next turn, your stacks retreat for free (trade ground for men)." },
-    { "id": "counter", "name": "Counter-attack", "suit": "defensive", "kind": "attack", "points": "counter",
-      "requiresSpent": true, "freeEntry": true, "count": 2,
-      "text": "Attack an enemy stack that just advanced (spent), stepping into its zone freely. {points} points: +1 strength each." },
-
-    { "id": "logistics", "name": "Logistics", "suit": "reorganizational", "kind": "logistics", "points": "logistics",
-      "limit": "rallyLimit", "gear": "splitGear",
-      "menu": { "rail": 1, "rally": 2, "merge": 1, "split": 1 }, "count": 6,
-      "text": "{points} points: rail +1 hex of movement (1), rally +1 gear up to {limit} (2), merge adjacent stacks (1), split a stack (1)." },
-
-    { "id": "homefront", "name": "Home Front", "suit": "willingness", "kind": "homefront", "points": "homefront",
-      "menu": { "propaganda": 1, "relief": 1, "recruit": 2 }, "count": 4,
-      "text": "{points} points: propaganda +1 resolve (1), relief -2 war weariness (1), recruit +1 man in a home stack (2)." }
-  ]
+  }
 }

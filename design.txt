@@ -772,5 +772,53 @@ M9 - ZONES OF CONTROL, FREE MOVEMENT AND DOCTRINE POINT MENUS
   hasty assaults and never use rail or split, so this needs human playtests.
   Not built: manpower pools, doctrine drafting, nation cards, game-log export.
 
+M10 - PLAYING CARDS, TIERS, LONGER WALKS (supersedes M3 deck, M9 items 2, 3, 7)
+  Decisions confirmed by the designer; numbers are playtest guesses.
+  1. DECKS: one standard 52-card deck per player, no jokers. Ranks 2-10, J, Q,
+     K, Ace (high). A spent deck is refilled from that player's own discards.
+     Hand 5, two plays per turn, one free discard per turn.
+  2. SUITS (fixed function): spades = Offensive (the only way to attack),
+     clubs = Defence, diamonds = Logistics, hearts = Home Front. Each suit is
+     tied to one doctrine suit (aggressive, defensive, reorganizational,
+     willingness), so a nation's doctrine level in that suit shifts the card.
+  3. TIERS: a rank has a natural tier: 2-4 = 0, 5-7 = 1, 8-10 = 2, J-K = 3,
+     Ace = 4. Doctrine shifts the tier by level 0/1/2/3 = -2/-1/0/+1, so a
+     level 3 doctrine lifts an 8-10 to the tier of a face card and a face card
+     above it. Tiers never go below 0. Per-tier tables in data/cards.json give
+     the points (and trench/rally limit, gear carried by a split).
+  4. PAIRS: two number cards (2-10) of one suit may be played together as one
+     order that uses BOTH of the turn's plays. Tier = tier of the summed ranks
+     (capped at 3) + 1, then the doctrine shift. A 2 and a 3 (sum 5) beat
+     either card alone. Face cards and Aces cannot be paired.
+  5. FACE CARDS (J, Q, K, A) add an ability on top of their tier:
+       Spades    J Surprise (defender's trench chips do not count)
+                 Q Combined arms (extra attacks cost 1 point)
+                 K No quarter (a beaten defender cannot retreat)
+                 A Breakthrough (loser -1 man more, the winner is not spent)
+       Clubs     J Elastic defence   Q Reserves (+1 defence, all stacks)
+                 K Iron wall (brace +2, trench limit +1)   A all of these
+       Diamonds  J Rail net (+3 hexes)   Q Staff work (+2 points)
+                 K Depots (rally costs 1, limit +1)        A all of these
+       Hearts    J Propaganda drive (+2 resolve)   Q Relief effort (-4 weariness)
+                 K Conscription (recruits cost 1)  A all of these
+  6. ATTACKING: only a spade order lets a stack attack. One stack attacks an
+     ADJACENT enemy for free (no assault entry, no hasty penalty); points are
+     +1 strength each, or extraCost (2) for another attack by another stack.
+     Doctrine governs the points, so a nation with no aggressive doctrine
+     gets a bare attack from every spade.
+  7. WALKING: every stack walks 2 hexes per turn without a card (rail adds
+     more). Entering an enemy zone of control is free but ends the walk; a
+     stack that starts inside a zone can only step out of it to a hex outside
+     every zone. A stack that fought cannot walk. Contact on turn 1 is
+     therefore possible.
+  8. DEFENDERS: a defender who holds gains no gear/experience; only an
+     attacker with the upper hand gains a gear chip.
+  9. SURRENDER: the surrender cards are gone with the jokers. Instead, at the
+     end of each player's own turn the nation breaks if its break score has
+     reached its hidden threshold (40-56, +2 per willingness level).
+  Simulation (40 seeded games, naive bots): A 17 / B 23, ~13 rounds, casualties
+  ~27 / ~33. Games are shorter and bloodier than M9 because attacks are cheap;
+  the thresholds are the knob to tune after human playtests.
+
 
 

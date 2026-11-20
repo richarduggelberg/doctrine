@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   applyPool, applyToStack, attack, breakScore, cardIssue, chooseMode, countryAt, createGame, discardCard, eligibleStacks, endOrder,
-  endTurn, featuresAt, fortification, inBounds, inEnemyZoc, isCutOff, legalAssaults, legalAttacks, legalMerges, legalMoves, legalSplits,
-  maxBonus, mergeStacks, moveStack, playCard, resolveHold, resolveRetreat, retreatOptions, splitStack, stackAt, strength,
-  terrainAt, terrainBonus, territoryOf,
+  endTurn, featuresAt, fortification, inBounds, inEnemyZoc, legalAttacks, legalMerges, legalMoves, legalSplits,
+  maxBonus, mergeStacks, moveStack, orderTier, pairIssue, playCard, resolveHold, resolveRetreat, retreatOptions, splitStack,
+  stackAt, strength, terrainAt, terrainBonus, territoryOf,
 } from '../js/engine.js';
 import { distance, neighbors } from '../js/hex.js';
 
@@ -13,16 +13,23 @@ const read = (path) => JSON.parse(readFileSync(new URL(path, import.meta.url)));
 const map = read('../data/map.json');
 const config = read('../data/cards.json');
 
-// Put a specific card in the current player's hand (cards are otherwise random).
-function give(state, type) {
+// Put a specific card (suit letter S/C/D/H, rank 2-14) in the current player's hand; hands are otherwise random.
+function give(state, suit, rank) {
   const next = structuredClone(state);
-  next.hands[next.current].push({ uid: `test-${type}-${next.hands[next.current].length}`, type });
+  const hand = next.hands[next.current];
+  hand.push({ uid: `test-${suit}${rank}-${hand.length}`, suit: config.suits[suit], rank });
   return next;
 }
 
-function play(state, type) {
-  const given = give(state, type);
+function play(state, suit, rank) {
+  const given = give(state, suit, rank);
   return playCard(given, given.hands[given.current].at(-1).uid);
+}
+
+function playPair(state, suit, first, second) {
+  const given = give(give(state, suit, first), suit, second);
+  const hand = given.hands[given.current];
+  return playCard(given, hand.at(-2).uid, hand.at(-1).uid);
 }
 
 // Override suit counts in a player's doctrine.
@@ -50,17 +57,23 @@ function duel(a, b, terrain = {}) {
   );
 }
 
-const fight = (a, b, card = 'attack', terrain = {}) => attack(play(duel(a, b, terrain), card), 'A1', 'B1');
+// Player A's weakest Offensive: a 2 under a level 1 doctrine is tier 0, an attack with no bonus points.
+const bare = (state) => play(setDoctrine(state, 'A', { aggressive: 1 }), 'S', 2);
+const fight = (a, b, terrain = {}) => attack(bare(duel(a, b, terrain)), 'A1', 'B1');
 
-// Like duel, but one empty hex (2,2) lies between the stacks: an attack must be an assault.
+// A duel with an empty hex between the stacks: B1 at (4,2).
 function gapDuel(a, b) {
   const state = duel(a, b);
-  state.stacks[1].col = 3;
+  state.stacks[1].col = 4;
   return state;
 }
-const ENTRY = { col: 2, row: 2 };
-const assault = (a, b, card = 'attack', pay = false, bonus = 0) =>
-  attack(play(gapDuel(a, b), card), 'A1', 'B1', bonus, ENTRY, pay);
+
+// A duel where B has a second stack far away, so destroying B1 does not end the game.
+function duelWithReserve(a, b) {
+  const state = duel(a, b);
+  state.stacks.push({ id: 'B9', owner: 'B', col: 6, row: 0, men: 3, gear: 0, braced: 0, spent: false });
+  return state;
+}
 
 test('neighbor relation is symmetric and distance matches adjacency', () => {
   for (let row = 0; row < 6; row++) {
@@ -73,19 +86,22 @@ test('neighbor relation is symmetric and distance matches adjacency', () => {
   }
 });
 
-test('setup: 1914 armies, 5-card hands, and a seeded deck', () => {
+test('setup: 1914 armies, 5-card hands, and a seeded 52-card deck per player without jokers', () => {
   const state = createGame(map, config, 42);
   const count = (owner) => state.stacks.filter((s) => s.owner === owner).length;
   assert.ok(count('A') >= 4 && count('B') >= 4);
   assert.equal(new Set(state.stacks.map((s) => `${s.col},${s.row}`)).size, state.stacks.length);
   for (const s of state.stacks) assert.ok(inBounds(state, s.col, s.row));
-  assert.equal(state.hands.A.length, 5);
-  assert.equal(state.hands.B.length, 5);
-  const total = config.cards.reduce((n, c) => n + c.count, 0) + config.surrender.count;
-  assert.equal(state.deck.length + 10, total);
   for (const p of ['A', 'B']) {
-    assert.ok(state.hands[p].every((c) => c.type !== 'surrender'));
-    assert.ok(state.thresholds[p] >= 8);
+    assert.equal(state.hands[p].length, 5);
+    const cards = [...state.decks[p], ...state.hands[p]];
+    assert.equal(cards.length, 52);
+    assert.equal(new Set(cards.map((c) => c.uid)).size, 52);
+    for (const suit of Object.values(config.suits)) {
+      assert.deepEqual(cards.filter((c) => c.suit === suit).map((c) => c.rank).sort((x, y) => x - y),
+        [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]);
+    }
+    assert.ok(state.thresholds[p] >= config.surrender.thresholdMin);
   }
   assert.deepEqual(createGame(map, config, 42).hands, state.hands);
   assert.notDeepEqual(createGame(map, config, 43).hands, state.hands);
@@ -107,23 +123,83 @@ test('armies start in their own territory on the front line, out of contact', ()
   assert.equal(territoryOf(state, state.capitals.B.col, state.capitals.B.row), 'B');
 });
 
-test('attacking needs an order card, but moving does not', () => {
+test('attacking needs an Offensive card, but moving does not', () => {
   const state = duel(3, 3);
   assert.deepEqual(legalAttacks(state, 'A1'), []);
   assert.ok(legalMoves(state, 'A1').length > 0);
 });
 
-test('every card is playable by either doctrine; the suit level sets its magnitude', () => {
+test('rank bands and the doctrine shift set the tier; doctrine can lift a card above its band', () => {
   const state = duel(3, 3);
-  const aOffensive = give(state, 'offensive');
-  assert.equal(cardIssue(aOffensive, aOffensive.hands.A.at(-1)), null);
-  assert.equal(play(state, 'offensive').active.points, 3); // A: 3 aggressive cards
-  assert.equal(play(setDoctrine(state, 'A', { aggressive: 1 }), 'offensive').active.points, 1);
-  assert.equal(play(setDoctrine(state, 'A', { aggressive: 0 }), 'offensive').active.points, 0);
-  assert.equal(play(setDoctrine(state, 'A', { aggressive: 9 }), 'offensive').active.points, 3, 'level is capped');
-  const bOffensive = give(endTurn(state), 'offensive');
-  assert.equal(cardIssue(bOffensive, bOffensive.hands.B.at(-1)), null);
-  assert.equal(play(endTurn(state), 'offensive').active.points, 0); // B: no aggressive cards
+  const tiers = (owner, suit) => [2, 4, 5, 7, 8, 10, 11, 13, 14].map((r) => orderTier(state, owner, suit, [r]));
+  // A has 3 aggressive cards (+1), 2 reorganizational (0), 1 defensive (-1) and no willingness (-2).
+  assert.deepEqual(tiers('A', 'aggressive'), [1, 1, 2, 2, 3, 3, 4, 4, 5]);
+  assert.deepEqual(tiers('A', 'reorganizational'), [0, 0, 1, 1, 2, 2, 3, 3, 4]);
+  assert.deepEqual(tiers('A', 'defensive'), [0, 0, 0, 0, 1, 1, 2, 2, 3]);
+  assert.deepEqual(tiers('B', 'aggressive'), [0, 0, 0, 0, 0, 0, 1, 1, 2], 'no doctrine: tiers are clamped at 0');
+  assert.equal(play(state, 'S', 9).active.points, 4); // an 8-10 under level 3 plays as a face card (tier 3)
+  assert.equal(play(state, 'S', 3).active.points, 2);
+  assert.equal(play(endTurn(state), 'S', 9).active.points, 0);
+  assert.equal(play(setDoctrine(state, 'A', { aggressive: 9 }), 'S', 9).active.points, 4, 'level is capped');
+});
+
+test('two same-suit number cards played as a pair are worth their sum, plus a tier, and use both plays', () => {
+  const state = duel(3, 3);
+  assert.equal(orderTier(state, 'A', 'aggressive', [2, 3]), 3);
+  assert.equal(orderTier(state, 'A', 'aggressive', [9, 10]), 5);
+  const pair = playPair(state, 'S', 2, 3);
+  assert.equal(pair.active.points, 4, 'a 2 and a 3 beat either card alone (2 points)');
+  assert.equal(pair.played, 2);
+  const mixed = give(give(state, 'S', 2), 'C', 3);
+  const hand = mixed.hands.A;
+  assert.match(pairIssue(mixed, hand.at(-2), hand.at(-1)), /same suit/);
+  assert.throws(() => playCard(mixed, hand.at(-2).uid, hand.at(-1).uid));
+  const faces = give(give(state, 'S', 11), 'S', 4);
+  assert.match(pairIssue(faces, faces.hands.A.at(-2), faces.hands.A.at(-1)), /cannot be paired/);
+  const used = give(give(state, 'S', 2), 'S', 3);
+  used.played = 1;
+  assert.match(pairIssue(used, used.hands.A.at(-2), used.hands.A.at(-1)), /plays left/);
+});
+
+test('face cards add abilities: Offensive Surprise, No quarter and Breakthrough', () => {
+  // Surprise: trench chips do not count for the defender.
+  const dug = duel(5, 3);
+  dug.defense['2,2'] = 2;
+  assert.equal(attack(bare(dug), 'A1', 'B1').pending, null, '5 against 3 + 2 trenches is a tie');
+  assert.equal(attack(play(dug, 'S', 11), 'A1', 'B1').pending.winnerId, 'A1');
+  // No quarter: a beaten defender cannot retreat.
+  assert.ok(retreatOptions(attack(play(duel(5, 3), 'S', 5), 'A1', 'B1')).length > 0);
+  const noQuarter = attack(play(duel(5, 3), 'S', 13), 'A1', 'B1');
+  assert.equal(noQuarter.pending.winnerId, 'A1');
+  assert.deepEqual(retreatOptions(noQuarter), []);
+  // Breakthrough: the loser loses a man more, and the winning stack is not spent.
+  const advance = (card) => {
+    const won = attack(play(duelWithReserve(6, 4), 'S', card), 'A1', 'B1');
+    const [hex] = retreatOptions(won);
+    return resolveRetreat(won, hex.col, hex.row);
+  };
+  const normal = advance(5);
+  assert.equal(normal.stacks.find((s) => s.id === 'A1').spent, true);
+  assert.equal(normal.stacks.find((s) => s.id === 'B1').men, 2);
+  const through = advance(14);
+  assert.equal(through.stacks.find((s) => s.id === 'A1').spent, false);
+  assert.equal(through.stacks.find((s) => s.id === 'B1').men, 1);
+  // Combined arms: extra attacks cost 1 point.
+  assert.equal(play(duel(3, 3), 'S', 12).active.extraCost, 1);
+});
+
+test('face cards add abilities for the other suits', () => {
+  const b = endTurn(duel(3, 3)); // Player B: 3 defensive (+1), 2 willingness (0), 1 reorganizational (-1)
+  assert.equal(play(b, 'C', 11).elastic.B, true, 'Elastic defence at once');
+  assert.ok(play(b, 'C', 12).stacks.filter((s) => s.owner === 'B').every((s) => s.braced === 1), 'Reserves');
+  assert.equal(applyToStack(chooseMode(play(b, 'C', 13), 'brace'), 'B1').stacks[1].braced, 2, 'Iron wall braces by 2');
+  assert.equal(applyToStack(chooseMode(play(duel(3, 3), 'D', 11), 'rail'), 'A1').stacks[0].rail, 3, 'Rail net');
+  assert.equal(play(duel(3, 3), 'D', 12).active.points, 5, 'Staff work: 3 points + 2');
+  const wearied = structuredClone(b);
+  wearied.weariness.B = 6;
+  assert.equal(applyPool(play(wearied, 'H', 12), 'relief').weariness.B, 2, 'Relief effort removes 4');
+  assert.equal(applyPool(play(b, 'H', 11), 'propaganda').resolve.B, b.resolve.B + 2, 'Propaganda drive');
+  assert.equal(chooseMode(play(b, 'H', 13), 'recruit').active.menu.recruit, 1, 'Conscription');
 });
 
 test('doctrine sets hidden thresholds (willingness) and the declared-doctrine resolve bonus', () => {
@@ -138,44 +214,68 @@ test('doctrine sets hidden thresholds (willingness) and the declared-doctrine re
   assert.deepEqual(createGame(map, secret, 11).resolve, { A: 0, B: publicResolve });
 });
 
-test('a card needing an unavailable stack cannot be played', () => {
-  const lone = give(duel(1, 1), 'attack');
+test('an Offensive card needs a stack that can attack an adjacent enemy', () => {
+  const lone = give(duel(1, 1), 'S', 5);
   assert.match(cardIssue(lone, lone.hands.A.at(-1)), /No stack/);
+  const apart = give(gapDuel(3, 3), 'S', 5);
+  assert.match(cardIssue(apart, apart.hands.A.at(-1)), /No stack/);
+  const ready = give(duel(3, 3), 'S', 5);
+  assert.equal(cardIssue(ready, ready.hands.A.at(-1)), null);
 });
 
-test('a stack steps 1 hex per turn outside enemy zones; the step resets next turn; rail adds hexes', () => {
+test('a stack walks 2 hexes per turn; entering an enemy zone is free but ends the walk', () => {
+  let state = gapDuel(3, 3); // A1 (1,2), B1 (4,2)
+  const open = (s) => legalMoves(s, 'A1').map((h) => `${h.col},${h.row}`);
+  assert.ok(open(state).includes('2,2'));
+  state = moveStack(state, 'A1', 2, 2);
+  assert.ok(open(state).includes('3,2'), 'the hex next to the enemy is enterable');
+  state = moveStack(state, 'A1', 3, 2);
+  assert.equal(state.stacks[0].halted, true);
+  assert.deepEqual(legalMoves(state, 'A1'), [], 'halted in the zone');
+  assert.equal(state.played, 0, 'moving costs no card');
+  state = endTurn(endTurn(state));
+  assert.equal(state.stacks[0].halted, false);
+  assert.ok(legalMoves(state, 'A1').length > 0, 'a new turn, a new walk');
+});
+
+test('a stack inside an enemy zone can only step out of it; the walk is still 2 hexes', () => {
   let state = duel(3, 3); // A1 (1,2) touches B1 (2,2)
   const open = legalMoves(state, 'A1').map((h) => `${h.col},${h.row}`);
   assert.ok(open.includes('0,2'));
   assert.ok(!open.includes('1,1') && !open.includes('1,3'), 'hexes next to the enemy are in its zone');
   state = moveStack(state, 'A1', 0, 2);
+  assert.ok(legalMoves(state, 'A1').length > 0, 'a second hex');
+  const [second] = legalMoves(state, 'A1');
+  state = moveStack(state, 'A1', second.col, second.row);
   assert.deepEqual(legalMoves(state, 'A1'), []);
   assert.throws(() => moveStack(state, 'A1', 0, 1));
-  assert.equal(state.played, 0, 'moving costs no card');
-  state = endTurn(endTurn(state));
-  assert.ok(legalMoves(state, 'A1').length > 0);
-
-  let railed = chooseMode(play(duel(3, 3), 'logistics'), 'rail'); // A: reorganizational 2 = 2 points
-  railed = applyToStack(railed, 'A1');
-  assert.equal(railed.active.points, 1);
-  railed = moveStack(railed, 'A1', 0, 2);
-  assert.ok(legalMoves(railed, 'A1').length > 0, 'rail gives a second hex');
   assert.equal(legalMoves(moveStack(duel(3, 3), 'A1', 0, 2), 'B1').length, 0, 'only the current player moves');
 });
 
+test('Rail adds hexes to a stack\'s walk', () => {
+  let state = applyToStack(chooseMode(play(duel(3, 3), 'D', 2), 'rail'), 'A1');
+  assert.equal(state.stacks[0].rail, 2);
+  const farFrom = (h) => distance(h, { col: 2, row: 2 });
+  for (let i = 0; i < 4; i++) {
+    const [hex] = legalMoves(state, 'A1').sort((a, b) => farFrom(b) - farFrom(a));
+    state = moveStack(state, 'A1', hex.col, hex.row);
+  }
+  assert.deepEqual(legalMoves(state, 'A1'), [], '2 hexes of walking + 2 of rail');
+});
+
 test('only two cards can be played per turn', () => {
-  let state = play(play(duel(3, 3), 'posture'), 'elastic'); // two immediate cards
-  state = give(state, 'hold');
+  const state = give(duel(3, 3), 'S', 5);
+  state.played = 2;
   assert.match(cardIssue(state, state.hands.A.at(-1)), /plays left/);
 });
 
 test('cancelling an unused order refunds the card and the play', () => {
-  const armed = play(duel(3, 3), 'hold');
+  const armed = play(duel(3, 3), 'S', 5);
   assert.equal(armed.played, 1);
   const cancelled = endOrder(armed);
   assert.equal(cancelled.played, 0);
   assert.equal(cancelled.active, null);
-  assert.ok(cancelled.hands.A.some((c) => c.type === 'hold'));
+  assert.ok(cancelled.hands.A.some((c) => c.rank === 5 && c.suit === 'aggressive'));
 });
 
 test('terrain, trenches and bracing add to defense; a tie is a stalemate with attrition only', () => {
@@ -186,23 +286,19 @@ test('terrain, trenches and bracing add to defense; a tie is a stalemate with at
   assert.equal(tie.casualties.A + tie.casualties.B, 2);
   const rough = duel(4, 3, { '2,2': 'rough' });
   assert.equal(strength(rough, rough.stacks[1], true), 4);
-  assert.equal(attack(play(rough, 'attack'), 'A1', 'B1').pending, null);
+  assert.equal(attack(bare(rough), 'A1', 'B1').pending, null);
   const braced = structuredClone(duel(4, 3));
   braced.stacks[1].braced = 1;
   braced.defense['2,2'] = 2;
   assert.equal(strength(braced, braced.stacks[1], true), 6);
 });
 
-test('Offensive with no aggressive doctrine is only a basic attack', () => {
-  assert.equal(maxBonus(play(setDoctrine(duel(3, 3), 'A', { aggressive: 0 }), 'offensive')), 0);
-});
-
-test('a repulsed attacker pays only attrition, the defender gains gear and nobody has to choose', () => {
+test('a repulsed attacker pays only attrition; the defender gains no gear and nobody has to choose', () => {
   const state = fight(3, 5);
   assert.equal(state.pending, null);
   assert.equal(state.stacks.find((s) => s.id === 'A1').men, 2);
   const defender = state.stacks.find((s) => s.id === 'B1');
-  assert.deepEqual([defender.men, defender.gear, defender.col], [4, 1, 2]);
+  assert.deepEqual([defender.men, defender.gear, defender.col], [4, 0, 2]);
   assert.deepEqual(state.battlesLost, { A: 1, B: 0 });
 });
 
@@ -224,7 +320,7 @@ test('with the upper hand the attacker gains gear; the defender loses a man and 
 });
 
 test('a retreat costs gear before men', () => {
-  const geared = play(duel(5, 3), 'attack');
+  const geared = bare(duel(5, 3));
   geared.stacks[1].gear = 1;
   const state = attack(geared, 'A1', 'B1');
   const [hex] = retreatOptions(state);
@@ -256,9 +352,15 @@ test('other actions are blocked while a battle awaits a decision', () => {
   assert.throws(() => attack(state, 'A1', 'B1'));
 });
 
+test('a stack that fought cannot walk any more, and one in contact can still attack', () => {
+  const fought = resolveHold(attack(bare(duelWithReserve(5, 3)), 'A1', 'B1'));
+  assert.equal(fought.stacks.find((s) => s.id === 'A1').fought, true);
+  assert.deepEqual(legalMoves(fought, 'A1'), []);
+});
+
 test('Offensive points: +1 strength each on an attack, or 2 points buy an extra attack', () => {
-  assert.equal(fight(3, 3, 'offensive').pending, null); // +0: a tie
-  const armed = play(duel(3, 3), 'offensive'); // A: level 3 = 3 points
+  assert.equal(maxBonus(bare(duel(3, 3))), 0);
+  const armed = play(duel(3, 3), 'S', 6); // tier 2 under level 3: 3 points
   assert.equal(maxBonus(armed), 3);
   assert.throws(() => attack(armed, 'A1', 'B1', 4));
   const strong = attack(armed, 'A1', 'B1', 1);
@@ -283,7 +385,7 @@ test('an extra attack costs points, leaving less for bonuses; a different stack 
     },
     config,
   );
-  let s = attack(play(state, 'offensive'), 'A1', 'B1', 1); // 3 points: 1 spent, 2 left; B1 loses 1 + 1 and is destroyed
+  let s = attack(play(state, 'S', 6), 'A1', 'B1', 1); // 3 points: 1 spent, 2 left; B1 loses 1 + 1 and is destroyed
   assert.equal(s.pending, null);
   assert.equal(maxBonus(s), 0); // the extra attack uses the remaining 2
   assert.throws(() => attack(s, 'A2', 'B2', 1));
@@ -293,35 +395,33 @@ test('an extra attack costs points, leaving less for bonuses; a different stack 
   assert.equal(s.active, null);
 
   // Bonus 2 leaves 1 point, which cannot pay for another attack.
-  assert.equal(attack(play(state, 'offensive'), 'A1', 'B1', 2).active, null);
+  assert.equal(attack(play(state, 'S', 6), 'A1', 'B1', 2).active, null);
 });
 
-test('Fortify spends points on trench chips up to the doctrine limit per hex', () => {
-  let state = endTurn(duel(3, 3)); // Player B: 3 defensive cards = 3 points, limit 3
-  state = applyToStack(play(state, 'fortify'), 'B1');
+test('Defence spends points on trench chips up to the doctrine limit per hex, or on bracing', () => {
+  let state = endTurn(duel(3, 3)); // Player B: 3 defensive cards: an 8 is tier 3 = 3 points, limit 3
+  state = applyToStack(chooseMode(play(state, 'C', 8), 'trench'), 'B1');
   assert.equal(state.defense['2,2'], 1);
   assert.equal(state.active.points, 2);
-  state = applyToStack(applyToStack(state, 'B1'), 'B1');
-  assert.equal(state.defense['2,2'], 3, 'all points can be piled on one hex');
-  assert.equal(state.active, null, 'the order ends when the points are spent');
-  state.played = 0;
-  const full = give(state, 'fortify');
-  assert.match(cardIssue(full, full.hands.B.at(-1)), /No stack/);
-  const lowLevel = give(setDoctrine(duel(3, 3), 'A', { defensive: 0 }), 'fortify'); // limit 1
+  const full = applyToStack(applyToStack(state, 'B1'), 'B1');
+  assert.equal(full.defense['2,2'], 3, 'all points can be piled on one hex');
+  assert.equal(full.active, null, 'the order ends when the points are spent');
+  full.played = 0;
+  assert.deepEqual(eligibleStacks(chooseMode(play(full, 'C', 8), 'trench')), [], 'the hex is at the limit');
+  const lowLevel = chooseMode(play(setDoctrine(duel(3, 3), 'A', { defensive: 0 }), 'C', 2), 'trench'); // limit 1
   lowLevel.defense['1,2'] = 1;
-  assert.match(cardIssue(lowLevel, lowLevel.hands.A.at(-1)), /No stack/);
+  assert.deepEqual(eligibleStacks(lowLevel), []);
 });
 
-test('Hold braces a stack until its owner next turn; moving removes the bracing', () => {
-  let state = applyToStack(play(duel(3, 3), 'hold'), 'A1');
+test('Bracing lasts until its owner next turn; moving removes it', () => {
+  let state = applyToStack(chooseMode(play(duel(3, 3), 'C', 2), 'brace'), 'A1');
   assert.equal(state.stacks[0].braced, 1);
   state = endTurn(state);
   assert.equal(state.stacks[0].braced, 1);
   state = endTurn(state);
   assert.equal(state.stacks[0].braced, 0);
-  const braced = applyToStack(play(duel(3, 3), 'hold'), 'A1');
-  const moved = moveStack(braced, 'A1', 0, 2);
-  assert.equal(moved.stacks[0].braced, 0);
+  const braced = applyToStack(chooseMode(play(duel(3, 3), 'C', 2), 'brace'), 'A1');
+  assert.equal(moveStack(braced, 'A1', 0, 2).stacks[0].braced, 0);
 });
 
 test('Logistics: merge and split cost 1 point each, rally 2; level sets the pool', () => {
@@ -339,59 +439,56 @@ test('Logistics: merge and split cost 1 point each, rally 2; level sets the pool
     },
     config,
   );
-  assert.equal(play(base, 'logistics').active.points, 2); // A: 2 reorganizational cards
-  assert.equal(play(setDoctrine(base, 'A', { reorganizational: 0 }), 'logistics').active.points, 1);
+  assert.equal(play(base, 'D', 5).active.points, 2); // A: 2 reorganizational cards, a 5 is tier 1
+  assert.equal(play(setDoctrine(base, 'A', { reorganizational: 0 }), 'D', 5).active.points, 1);
 
-  const armedMerge = chooseMode(play(base, 'logistics'), 'merge');
+  const armedMerge = chooseMode(play(base, 'D', 5), 'merge');
   assert.deepEqual(legalMerges(armedMerge, 'A1').map((s) => s.id), ['A2']);
   const merged = mergeStacks(armedMerge, 'A2', 'A1');
   assert.equal(merged.stacks.find((s) => s.id === 'A1').men, 7);
   assert.equal(merged.stacks.filter((s) => s.owner === 'A').length, 1);
   assert.equal(merged.active.points, 1, 'the rest of the pool is still usable');
 
-  const armed = chooseMode(play(base, 'logistics'), 'split');
+  const armed = chooseMode(play(base, 'D', 5), 'split');
   const [hex] = legalSplits(armed, 'A1');
   const split = splitStack(armed, 'A1', hex.col, hex.row);
   assert.equal(split.stacks.find((s) => s.id === 'A1').men, 3);
   assert.equal(stackAt(split, hex.col, hex.row).men, 2);
   assert.equal(stackAt(split, hex.col, hex.row).id, 'A3');
   assert.equal(stackAt(split, hex.col, hex.row).gear, 0);
-  assert.deepEqual(legalMoves(split, 'A3'), [], 'the new stack used its step arriving');
+  assert.deepEqual(legalMoves(split, 'A3'), [], 'the new stack used its walk arriving');
 
-  // At level 3 a split can take one gear chip along.
+  // At a high tier a split can take one gear chip along.
   const geared = setDoctrine(base, 'A', { reorganizational: 3 });
   geared.stacks[0].gear = 2;
-  const sent = splitStack(chooseMode(play(geared, 'logistics'), 'split'), 'A1', hex.col, hex.row);
+  const sent = splitStack(chooseMode(play(geared, 'D', 8), 'split'), 'A1', hex.col, hex.row);
   assert.equal(stackAt(sent, hex.col, hex.row).gear, 1);
   assert.equal(sent.stacks.find((s) => s.id === 'A1').gear, 1);
 
-  const rallied = applyToStack(chooseMode(play(base, 'logistics'), 'rally'), 'A1');
+  const rallied = applyToStack(chooseMode(play(base, 'D', 5), 'rally'), 'A1');
   assert.equal(rallied.stacks[0].gear, 1);
   assert.equal(rallied.active, null, 'rally costs the whole 2-point pool');
-  assert.throws(() => chooseMode(play(setDoctrine(base, 'A', { reorganizational: 0 }), 'logistics'), 'rally'));
+  assert.throws(() => chooseMode(play(setDoctrine(base, 'A', { reorganizational: 0 }), 'D', 5), 'rally'));
 });
 
-test('Home Front: propaganda, relief and recruits; Posture scales with doctrine', () => {
-  let state = endTurn(duel(3, 3)); // Player B: willingness 2 = 3 points
+test('Home Front: propaganda, relief and recruits scale with doctrine', () => {
+  const state = endTurn(duel(3, 3)); // Player B: willingness 2 = tier 1 for a 5 = 3 points
   state.weariness.B = 1;
   const before = state.resolve.B;
-  let front = applyPool(play(state, 'homefront'), 'propaganda');
+  let front = applyPool(play(state, 'H', 5), 'propaganda');
   assert.equal(front.resolve.B, before + 1);
   assert.equal(front.active.points, 2);
   front = applyPool(front, 'relief');
   assert.equal(front.weariness.B, 0, 'relief cannot go below zero');
   assert.equal(front.active.points, 1);
   assert.throws(() => chooseMode(front, 'recruit'), /Not enough/);
-  const recruit = applyToStack(chooseMode(play(state, 'homefront'), 'recruit'), 'B1');
+  const recruit = applyToStack(chooseMode(play(state, 'H', 5), 'recruit'), 'B1');
   assert.equal(recruit.stacks.find((s) => s.id === 'B1').men, 4);
   assert.equal(recruit.active.points, 1);
   const away = duel(3, 3);
   away.stacks[0].col = 3; // A1 on B's side of the border
-  assert.deepEqual(eligibleStacks(chooseMode(play(away, 'homefront'), 'recruit')), [], 'no recruits on enemy ground');
-  assert.equal(play(setDoctrine(state, 'B', { willingness: 0 }), 'homefront').active.points, 2);
-
-  const posture = play(state, 'posture');
-  assert.ok(posture.stacks.filter((s) => s.owner === 'B').every((s) => s.braced === 3));
+  assert.deepEqual(eligibleStacks(chooseMode(play(away, 'H', 5), 'recruit')), [], 'no recruits on enemy ground');
+  assert.equal(play(setDoctrine(state, 'B', { willingness: 0 }), 'H', 5).active.points, 2);
 });
 
 test('ending a turn refills the hand, resets plays and switches player', () => {
@@ -409,30 +506,23 @@ test('ending a turn refills the hand, resets plays and switches player', () => {
   assert.equal(state.turn, 2);
 });
 
-test('the discard pile is reshuffled when the deck runs out', () => {
+test('each player\'s discard pile is reshuffled into their own deck when it runs out', () => {
   let state = createGame(map, config, 3);
-  state.thresholds = { A: 999, B: 999 }; // weariness grows every turn; keep the surrender cards harmless
-  const turns = 60; // each turn draws 1 card from a 27-card deck, so discards must be reshuffled
-  for (let i = 0; i < turns; i++) {
+  state.thresholds = { A: 999, B: 999 }; // weariness grows every turn; keep the surrender check harmless
+  for (let i = 0; i < 200; i++) { // each player draws 1 card a turn from 47, so discards must be reshuffled
     state = discardCard(state, state.hands[state.current][0].uid);
     state = endTurn(state);
   }
-  assert.equal(state.hands.A.length, 5);
-  assert.equal(state.hands.B.length, 5);
-  const all = [...state.deck, ...state.discard, ...state.hands.A, ...state.hands.B].map((c) => c.uid);
-  assert.equal(new Set(all).size, all.length);
+  for (const p of ['A', 'B']) {
+    assert.equal(state.hands[p].length, 5);
+    const all = [...state.decks[p], ...state.discards[p], ...state.hands[p]];
+    assert.equal(new Set(all.map((c) => c.uid)).size, 52);
+    assert.ok(all.every((c) => c.uid.startsWith(`${p}:`)), 'decks never mix');
+  }
 });
 
-// Rig the deck so the current player's next draw is a surrender card.
-function rigSurrender(state) {
-  const next = structuredClone(state);
-  next.hands[next.current].pop();
-  next.deck.push({ uid: 'surrender#rigged', type: 'surrender' });
-  return next;
-}
-
 test('break score counts casualties, lost battles and lost home ground, minus resolve', () => {
-  let state = duel(3, 3);
+  const state = duel(3, 3);
   state.resolve.A = 0; // ignore the declared-doctrine bonus
   assert.equal(breakScore(state, 'A'), 0);
   state.casualties.A = 4;
@@ -448,47 +538,40 @@ test('break score counts casualties, lost battles and lost home ground, minus re
   assert.equal(breakScore(state, 'A'), 0);
 });
 
-test('a surrender card breaks only the drawer, and only above their threshold', () => {
+test('a nation breaks at the end of its own turn once its score reaches its threshold', () => {
   let state = createGame(map, config, 5);
-  state.casualties.A = 50; // A is far past any threshold, B is untouched
-  state = endTurn(rigSurrender(state));
+  state.casualties.A = 500; // A is far past any threshold, B is untouched
+  state = endTurn(state);
   assert.equal(state.over.loser, 'A');
   assert.equal(state.over.winner, 'B');
+  assert.match(state.over.reason, /will to fight/);
   assert.deepEqual(state.thresholds, state.over.thresholds);
   assert.throws(() => endTurn(state));
   assert.throws(() => discardCard(state, state.hands.A[0].uid));
   assert.ok(state.hands.A.every((c) => cardIssue(state, c) === 'The game is over'));
 });
 
-test('a surrender card is harmless to a nation that still holds firm, and is recycled', () => {
+test('a broken nation only surrenders when its own turn ends, not the enemy\'s', () => {
   let state = createGame(map, config, 5);
-  state.casualties.B = 50; // only the opponent is broken
-  state = endTurn(rigSurrender(state));
+  state.casualties.B = 500;
+  state = endTurn(state);
   assert.equal(state.over, null);
-  assert.equal(state.hands.A.length, 5);
-  assert.ok(state.hands.A.every((c) => c.type !== 'surrender'));
-  assert.ok(state.discard.some((c) => c.type === 'surrender'));
   assert.equal(state.current, 'B');
+  state = endTurn(state);
+  assert.equal(state.over.loser, 'B');
 });
 
 test('bloodletting: the attacker pays for terrain and trenches, the defender for offensive points', () => {
-  assert.equal(fight(6, 3, 'attack', { '2,2': 'fortified' }).stacks[0].men, 4); // paid 2
-  const dug = play(duel(9, 3, { '2,2': 'rough' }), 'attack');
+  assert.equal(fight(6, 3, { '2,2': 'fortified' }).stacks[0].men, 4); // paid 2
+  const dug = bare(duel(9, 3, { '2,2': 'rough' }));
   dug.defense['2,2'] = 2;
   assert.equal(attack(dug, 'A1', 'B1').stacks[0].men, 6); // rough + 2 trenches: paid 3
-  const shelled = attack(play(duel(9, 5), 'offensive'), 'A1', 'B1', 2);
+  const shelled = attack(play(duel(9, 5), 'S', 6), 'A1', 'B1', 2);
   assert.equal(shelled.stacks.find((s) => s.id === 'B1').men, 2); // 1 + 2 offensive points
 });
 
-// A duel where B has a second stack far away, so destroying B1 does not end the game.
-function duelWithReserve(a, b) {
-  const state = duel(a, b);
-  state.stacks.push({ id: 'B9', owner: 'B', col: 6, row: 0, men: 3, gear: 0, braced: 0, spent: false });
-  return state;
-}
-
 test('an advancing stack is spent until its owner next turn begins', () => {
-  let state = attack(play(duelWithReserve(6, 1), 'attack'), 'A1', 'B1'); // B1 dies, A1 advances
+  let state = attack(bare(duelWithReserve(6, 1)), 'A1', 'B1'); // B1 dies, A1 advances
   const attacker = state.stacks.find((s) => s.id === 'A1');
   assert.equal(attacker.spent, true);
   assert.equal(strength(state, attacker, false), attacker.men + attacker.gear - 1);
@@ -511,7 +594,7 @@ test('war weariness grows on turns without a capture and resets when ground is t
 test('capturing a hex resets war weariness', () => {
   let state = duelWithReserve(6, 1);
   state.weariness.A = 5;
-  state = attack(play(state, 'attack'), 'A1', 'B1');
+  state = attack(bare(state), 'A1', 'B1');
   state = endTurn(state);
   assert.equal(state.weariness.A, 0);
 });
@@ -614,131 +697,4 @@ test('terrain modifiers stack: hills + big river + city fight as 4 chips of defe
   const cologne = bigMap.scenery.places.find((p) => p.name === 'Cologne');
   assert.deepEqual(featuresAt(bigMap, cologne.col, cologne.row), ['bigriver', 'bigcity']);
   assert.ok(Object.values(bigMap.terrain).some((t) => t.split('+').length >= 3), 'the map has triple stacks');
-});
-
-test('the front is open to flank marches through neutral ground, but never through an enemy zone', () => {
-  const state = createGame(map, config);
-  for (const stack of state.stacks) {
-    for (const hex of legalMoves({ ...state, current: stack.owner }, stack.id)) {
-      assert.ok(!inEnemyZoc(state, stack.owner, hex.col, hex.row));
-    }
-  }
-});
-
-test('an assault steps into the enemy zone first; unprepared it is hasty (-2 strength)', () => {
-  const armed = play(gapDuel(5, 3), 'attack');
-  assert.deepEqual(legalAttacks(armed, 'A1'), [], 'nothing is adjacent');
-  const [entry] = legalAssaults(armed, 'A1');
-  assert.deepEqual([entry.col, entry.row, entry.targets[0].id], [2, 2, 'B1']);
-  const hasty = assault(5, 3); // 5 - 2 = 3 against 3: a tie
-  assert.equal(hasty.pending, null);
-  const a1 = hasty.stacks.find((s) => s.id === 'A1');
-  assert.deepEqual([a1.col, a1.men, a1.fought], [2, 4, true], 'the assaulter now stands in the zone');
-  assert.ok(hasty.log.some((l) => l.includes('hasty -2')));
-  assert.equal(assault(6, 3).pending.winnerId, 'A1');
-  assert.equal(attack(play(gapDuel(3, 3), 'attack'), 'A1', 'B1', 0, ENTRY).stacks[0].men, 2);
-  assert.throws(() => attack(armed, 'A1', 'B1'), /Illegal/, 'no direct attack across a gap');
-  assert.throws(() => attack(armed, 'A1', 'B1', 0, { col: 0, row: 2 }), /Illegal/);
-});
-
-test('Offensive points can pay 2 to enter the zone cleanly, leaving the rest as bonus', () => {
-  const armed = play(gapDuel(3, 3), 'offensive'); // 3 points
-  assert.equal(maxBonus(armed, true), 1);
-  assert.throws(() => attack(armed, 'A1', 'B1', 2, ENTRY, true), /affordable/);
-  const paid = attack(armed, 'A1', 'B1', 1, ENTRY, true); // 3 + 1 against 3
-  assert.equal(paid.pending.winnerId, 'A1');
-  assert.equal(paid.active, null, 'the pool is spent');
-  assert.throws(() => attack(play(gapDuel(3, 3), 'attack'), 'A1', 'B1', 0, ENTRY, true), /affordable/);
-});
-
-test('a stack that already moved or fought cannot assault; contact attacks stay free', () => {
-  const moved = play(gapDuel(5, 3), 'attack');
-  moved.stacks[0].moved = 1;
-  assert.deepEqual(legalAssaults(moved, 'A1'), []);
-  const contact = play(duel(5, 3), 'attack');
-  contact.stacks[0].moved = 1;
-  assert.equal(legalAttacks(contact, 'A1').length, 1, 'a stack in contact can still attack');
-  const fought = resolveHold(attack(play(duelWithReserve(5, 3), 'attack'), 'A1', 'B1'));
-  assert.equal(fought.stacks.find((s) => s.id === 'A1').fought, true);
-  assert.deepEqual(legalMoves(fought, 'A1'), [], 'a stack that fought cannot step');
-});
-
-test('Counter-attack only hits a spent enemy, and entering its zone is free', () => {
-  let state = give(setDoctrine(gapDuel(3, 3), 'A', { defensive: 3 }), 'counter');
-  assert.match(cardIssue(state, state.hands.A.at(-1)), /No stack/);
-  state.stacks[1].spent = true; // B1 just advanced: 3 - 1 = 2 defense
-  assert.equal(cardIssue(state, state.hands.A.at(-1)), null);
-  state = playCard(state, state.hands.A.at(-1).uid);
-  assert.equal(state.active.points, 2);
-  const won = attack(state, 'A1', 'B1', 0, ENTRY); // no hasty penalty: 3 against 2
-  assert.equal(won.pending.winnerId, 'A1');
-  assert.equal(maxBonus(state), 2);
-});
-
-test('Elastic Defence makes retreats free until its owner next turn, even for a stack with no chip to spare', () => {
-  let state = endTurn(duel(5, 2));
-  state = endTurn(play(state, 'elastic'));
-  assert.equal(state.elastic.B, true);
-  state = attack(play(state, 'attack'), 'A1', 'B1'); // B1 is down to 1 man
-  const [hex] = retreatOptions(state);
-  assert.ok(hex, 'a lone man may retreat');
-  state = resolveRetreat(state, hex.col, hex.row);
-  assert.equal(state.stacks.find((s) => s.id === 'B1').men, 1, 'no retreat cost');
-  assert.match(state.log.at(-2), /elastic/);
-  assert.equal(endTurn(endTurn(state)).elastic.B, false);
-});
-
-test('a stack already in an enemy zone cannot assault another one: it attacks in place or steps out', () => {
-  const state = play(duel(5, 3), 'attack');
-  const far = structuredClone(state.stacks[1]);
-  Object.assign(far, { id: 'B2', col: 3, row: 4 }); // a second enemy two hexes from A1
-  state.stacks.push(far);
-  assert.equal(inEnemyZoc(state, 'A', 1, 2), true);
-  assert.deepEqual(legalAssaults(state, 'A1'), []);
-  assert.equal(legalAttacks(state, 'A1').length, 1);
-  assert.ok(legalMoves(state, 'A1').every((h) => !inEnemyZoc(state, 'A', h.col, h.row)));
-});
-
-// A1 at (1,2) is hemmed in: B1 at (2,2) and B2 at (0,2) cover every hex that leads home.
-function surrounded() {
-  const state = duel(5, 3);
-  state.stacks[0].gear = 1;
-  const flank = structuredClone(state.stacks[1]);
-  Object.assign(flank, { id: 'B2', col: 0, row: 2 });
-  state.stacks.push(flank);
-  return state;
-}
-
-test('a stack with no supply path to its capital is cut off: it can do nothing and bleeds', () => {
-  const free = duel(5, 3);
-  assert.equal(isCutOff(free, free.stacks[0]), false, 'a front stack with a clear way home is supplied');
-  let state = surrounded();
-  assert.equal(isCutOff(state, state.stacks[0]), true);
-  assert.deepEqual(legalMoves(state, 'A1'), []);
-  assert.match(cardIssue(state, give(state, 'attack').hands.A.at(-1)), /No stack/);
-  state = endTurn(endTurn(state));
-  const a1 = () => state.stacks.find((s) => s.id === 'A1');
-  assert.deepEqual([a1().gear, a1().men], [0, 5], 'first turn: loses gear');
-  state = endTurn(endTurn(state));
-  assert.equal(a1().men, 4, 'afterwards: loses a man a turn');
-  assert.equal(state.casualties.A, 1);
-  state.stacks = state.stacks.filter((s) => s.id !== 'B2');
-  state = endTurn(endTurn(state));
-  assert.equal(a1().cut, 0, 'relieved stacks recover');
-});
-
-test('a cut-off stack cannot retreat and the capital itself is always supplied', () => {
-  const state = surrounded();
-  state.pending = { loserId: 'A1', attackerId: 'B1', defenderCol: 1, defenderRow: 2, winnerId: 'B1' };
-  assert.deepEqual(retreatOptions(state), []);
-  state.stacks[0].col = 0;
-  state.stacks[0].row = 0;
-  assert.equal(isCutOff(state, state.stacks[0]), false);
-});
-
-test('a nation with no stacks left surrenders at once', () => {
-  let state = duel(3, 1);
-  state = attack(play(state, 'attack'), 'A1', 'B1'); // attrition destroys the lone man
-  assert.equal(state.over.loser, 'B');
-  assert.match(state.over.reason, /destroyed/);
 });
