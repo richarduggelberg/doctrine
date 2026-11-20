@@ -2,9 +2,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
-  applyPool, applyToStack, attack, breakScore, cardIssue, chooseMode, createGame, discardCard, eligibleStacks, endOrder,
-  endTurn, inBounds, inEnemyZoc, isCutOff, legalAssaults, legalAttacks, legalMerges, legalMoves, legalSplits, maxBonus, mergeStacks,
-  moveStack, playCard, resolveHold, resolveRetreat, retreatOptions, splitStack, stackAt, strength, territoryOf,
+  applyPool, applyToStack, attack, breakScore, cardIssue, chooseMode, countryAt, createGame, discardCard, eligibleStacks, endOrder,
+  endTurn, featuresAt, fortification, inBounds, inEnemyZoc, isCutOff, legalAssaults, legalAttacks, legalMerges, legalMoves, legalSplits,
+  maxBonus, mergeStacks, moveStack, playCard, resolveHold, resolveRetreat, retreatOptions, splitStack, stackAt, strength,
+  terrainAt, terrainBonus, territoryOf,
 } from '../js/engine.js';
 import { distance, neighbors } from '../js/hex.js';
 
@@ -72,11 +73,12 @@ test('neighbor relation is symmetric and distance matches adjacency', () => {
   }
 });
 
-test('setup: 5 stacks per side, 5-card hands, and a seeded deck', () => {
+test('setup: equal armies, 5-card hands, and a seeded deck', () => {
   const state = createGame(map, config, 42);
-  assert.equal(state.stacks.filter((s) => s.owner === 'A').length, 5);
-  assert.equal(state.stacks.filter((s) => s.owner === 'B').length, 5);
-  assert.equal(new Set(state.stacks.map((s) => `${s.col},${s.row}`)).size, 10);
+  const perSide = state.stacks.filter((s) => s.owner === 'A').length;
+  assert.ok(perSide >= 4);
+  assert.equal(state.stacks.filter((s) => s.owner === 'B').length, perSide);
+  assert.equal(new Set(state.stacks.map((s) => `${s.col},${s.row}`)).size, 2 * perSide);
   for (const s of state.stacks) assert.ok(inBounds(state, s.col, s.row));
   assert.equal(state.hands.A.length, 5);
   assert.equal(state.hands.B.length, 5);
@@ -93,8 +95,8 @@ test('setup: 5 stacks per side, 5-card hands, and a seeded deck', () => {
 test('armies start in their own territory on the front line, out of contact', () => {
   const state = createGame(map, config, 1);
   for (const s of state.stacks) {
-    assert.equal(territoryOf(state, s.col), s.owner);
-    assert.ok(Math.abs(s.col - state.borderCol - 0.5) <= 1.5, `${s.id} is on the front line`);
+    assert.equal(territoryOf(state, s.col, s.row), s.owner);
+    assert.ok(inBounds(state, s.col, s.row), `${s.id} is on land`);
     assert.equal(s.men, 5);
   }
   const gap = Math.min(
@@ -102,8 +104,8 @@ test('armies start in their own territory on the front line, out of contact', ()
       state.stacks.filter((s) => s.owner === 'B').map((b) => distance(a, b))),
   );
   assert.ok(gap >= 2, 'no stacks adjacent at the start');
-  assert.equal(territoryOf(state, state.capitals.A.col), 'A');
-  assert.equal(territoryOf(state, state.capitals.B.col), 'B');
+  assert.equal(territoryOf(state, state.capitals.A.col, state.capitals.A.row), 'A');
+  assert.equal(territoryOf(state, state.capitals.B.col, state.capitals.B.row), 'B');
 });
 
 test('attacking needs an order card, but moving does not', () => {
@@ -540,18 +542,70 @@ test('an enemy driven off the capital before the round ends does not win', () =>
   assert.equal(state.siege.A, null);
 });
 
-test('the map starts with trench chips on the front and second lines', () => {
+test('the map starts with trench chips on the front and deeper ones on the capitals', () => {
   const state = createGame(map, config);
-  assert.equal(state.defense['5,0'], 1);
-  assert.equal(state.defense['0,3'], 2);
+  for (const s of state.stacks) assert.equal(state.defense[`${s.col},${s.row}`], 1);
+  for (const cap of Object.values(state.capitals)) assert.equal(state.defense[`${cap.col},${cap.row}`], 2);
 });
 
-test('the starting front is sealed: neither side can walk past the other without assaulting', () => {
+test('the map is the Western Front: sea along the Channel coast, Paris and the Ruhr as capitals', () => {
   const state = createGame(map, config);
+  assert.equal(state.terrain['0,0'], 'sea');
+  assert.ok(!inBounds(state, 0, 0), 'sea hexes cannot be entered');
+  assert.equal(territoryOf(state, 0, 25), 'A');
+  assert.equal(territoryOf(state, state.cols - 1, 25), 'B');
+  assert.ok(state.capitals.B.col > state.capitals.A.col && state.capitals.B.row < state.capitals.A.row);
+});
+
+test('the five countries: France and Germany belong to the players, the rest is neutral', () => {
+  const state = createGame(map, config);
+  const codes = new Set(state.countries.join('').replace(/~/g, ''));
+  assert.deepEqual([...codes].sort(), ['E', 'F', 'G', 'L', 'N']);
+  assert.deepEqual(state.owners, { F: 'A', G: 'B' });
   for (let row = 0; row < state.rows; row++) {
-    assert.ok(inEnemyZoc(state, 'B', 4, row), `A's zone covers (4,${row})`);
-    assert.ok(inEnemyZoc(state, 'A', 7, row), `B's zone covers (7,${row})`);
+    for (let col = 0; col < state.cols; col++) {
+      const country = countryAt(state, col, row);
+      assert.equal(country === '~', terrainAt(state, col, row) === 'sea', `sea and country agree at ${col},${row}`);
+      assert.equal(territoryOf(state, col, row), state.owners[country] ?? null);
+    }
   }
+  for (const [name, code] of [['Brussels', 'E'], ['Amsterdam', 'N'], ['Luxembourg', 'L'], ['Metz', 'G'], ['Paris', 'F']]) {
+    const place = state.scenery.places.find((p) => p.name === name);
+    assert.equal(countryAt(state, place.col, place.row), code, name);
+  }
+});
+
+test('both armies start on the Franco-German border and nobody starts in a neutral country', () => {
+  const state = createGame(map, config);
+  for (const s of state.stacks) {
+    const home = s.owner === 'A' ? 'F' : 'G';
+    const foe = s.owner === 'A' ? 'G' : 'F';
+    assert.equal(countryAt(state, s.col, s.row), home);
+    // Within two hexes of the other country: French hexes touch the border, German ones stand one back.
+    const nearBorder = (r) =>
+      [...Array(state.cols * state.rows).keys()].some((i) => {
+        const hex = { col: i % state.cols, row: Math.floor(i / state.cols) };
+        return countryAt(state, hex.col, hex.row) === foe && distance(hex, s) <= r;
+      });
+    assert.ok(nearBorder(2), `${s.id} is on the border`);
+  }
+});
+
+test('terrain modifiers stack: hills + big river + city fight as 4 chips of defence', () => {
+  const state = duel(3, 3, { '2,2': 'hills+bigriver+city' });
+  assert.deepEqual(featuresAt(state, 2, 2), ['hills', 'bigriver', 'city']);
+  assert.equal(terrainBonus(state, 2, 2), 4);
+  assert.equal(fortification(state, 2, 2), 4);
+  assert.equal(strength(state, state.stacks[1], true), 3 + 4, 'a defender there counts all of it');
+  assert.equal(terrainBonus(state, 0, 0), 0, 'open ground adds nothing');
+  const bigMap = createGame(map, config);
+  const cologne = bigMap.scenery.places.find((p) => p.name === 'Cologne');
+  assert.deepEqual(featuresAt(bigMap, cologne.col, cologne.row), ['bigriver', 'bigcity']);
+  assert.ok(Object.values(bigMap.terrain).some((t) => t.split('+').length >= 3), 'the map has triple stacks');
+});
+
+test('the front is open to flank marches through neutral ground, but never through an enemy zone', () => {
+  const state = createGame(map, config);
   for (const stack of state.stacks) {
     for (const hex of legalMoves({ ...state, current: stack.owner }, stack.id)) {
       assert.ok(!inEnemyZoc(state, stack.owner, hex.col, hex.row));

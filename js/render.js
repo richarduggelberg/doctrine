@@ -1,9 +1,15 @@
-import { center, corners, edgeSegments, key } from './hex.js';
-import { isCutOff, strength, terrainAt, territoryOf } from './engine.js';
+import { center, corners, key } from './hex.js';
+import { featuresAt, inBounds, isCutOff, strength, TERRAIN_BONUS, territoryOf, countryAt } from './engine.js';
 
 const SIZE = 36;
 const CHIP_RADIUS = 21;
 const CHIP_THICKNESS = 4;
+// The one feature that colours a hex, strongest first; the rest still show as terrain chips.
+const FILL_ORDER = ['mountain', 'fortified', 'fortress', 'bigcity', 'city', 'hills', 'forest', 'marsh', 'rough'];
+
+// Map decoration is stored in hex units (u across, v down); this turns it into SVG pixels.
+const px = ([u, v]) => `${(SIZE * Math.sqrt(3) * u).toFixed(1)},${(SIZE * 1.5 * v).toFixed(1)}`;
+const polyline = (cls, line) => `<polyline class="${cls}" points="${line.map(px).join(' ')}"/>`;
 
 export function renderBoard(svg, state, view) {
   const width = SIZE * Math.sqrt(3) * (state.cols + 0.5) + SIZE;
@@ -12,43 +18,56 @@ export function renderBoard(svg, state, view) {
 
   const targets = new Set(view.targets.map((t) => key(t.col, t.row)));
   const parts = [];
-  const border = [];
+  const scenery = state.scenery;
 
   for (let row = 0; row < state.rows; row++) {
     for (let col = 0; col < state.cols; col++) {
       const { x, y } = center(col, row, SIZE);
-      const classes = ['hex'];
+      const points = corners(x, y, SIZE - 1);
+      if (!inBounds(state, col, row)) {
+        parts.push(`<polygon class="hex sea" points="${points}"/>`);
+        continue;
+      }
+      const features = featuresAt(state, col, row);
+      const classes = ['hex', FILL_ORDER.find((f) => features.includes(f)) ?? 'open'];
       if (targets.has(key(col, row))) classes.push('target');
       if (view.entries.has(key(col, row))) classes.push('entry');
-      const points = corners(x, y, SIZE - 1);
       parts.push(`<polygon class="${classes.join(' ')}" data-col="${col}" data-row="${row}" points="${points}"/>`);
       if (view.zoc.has(key(col, row))) parts.push(`<polygon class="zoc" points="${points}"/>`);
-      parts.push(`<polygon class="tint tint-${territoryOf(state, col)}" points="${points}"/>`);
-      const home = territoryOf(state, col);
-      const crossing = edgeSegments(col, row, SIZE, (c, r) => c >= 0 && c < state.cols && territoryOf(state, c) !== home);
-      for (const [p, q] of crossing) {
-        border.push(`<line class="border" x1="${p.x.toFixed(1)}" y1="${p.y.toFixed(1)}" x2="${q.x.toFixed(1)}" y2="${q.y.toFixed(1)}"/>`);
-      }
+      const home = countryAt(state, col, row) ?? territoryOf(state, col, row);
+      parts.push(`<polygon class="tint tint-${home}" points="${points}"/>`);
     }
   }
-  parts.push(...border);
+
+  // Rivers run between hex centres' worth of ground, borders follow the real frontiers.
+  for (const river of scenery.rivers) parts.push(polyline(river.big ? 'river big' : 'river', river.line));
+  for (const border of scenery.borders) parts.push(polyline('border', border.line));
+  for (const label of scenery.countryLabels) {
+    const [x, y] = px(label.at).split(',');
+    parts.push(`<text class="country" x="${x}" y="${y}" text-anchor="middle">${label.name.toUpperCase()}</text>`);
+  }
+
+  for (const place of scenery.places) {
+    const { x, y } = center(place.col, place.row, SIZE);
+    parts.push(`<text class="place" x="${x}" y="${y - SIZE * 0.62}" text-anchor="middle">${place.name}</text>`);
+  }
 
   for (const [owner, cap] of Object.entries(state.capitals)) {
     const { x, y } = center(cap.col, cap.row, SIZE);
     parts.push(`<text class="capital owner-${owner}" x="${x}" y="${y + SIZE * 0.86}" text-anchor="middle">★</text>`);
   }
 
-  // Everything on a hex is one pile of equal chips, bottom to top: terrain (1 rough, 2 fortified),
-  // trench chips, men, gear. Terrain and trenches never move or attack but count for the defender.
+  // Everything on a hex is one pile of equal chips, bottom to top: terrain (one per point of every
+  // modifier, coloured by modifier), trench chips, men, gear. Terrain and trenches never move or attack
+  // but count for the defender.
   const stackAt = new Map(state.stacks.map((s) => [key(s.col, s.row), s]));
   const piles = [];
   for (let row = 0; row < state.rows; row++) {
     for (let col = 0; col < state.cols; col++) {
-      const terrain = terrainAt(state, col, row);
-      const terrainChips = terrain === 'fortified' ? 2 : terrain === 'rough' ? 1 : 0;
+      const terrainChips = featuresAt(state, col, row).flatMap((f) => Array(TERRAIN_BONUS[f] ?? 0).fill(`terrain-chip f-${f}`));
       const trenchChips = state.defense[key(col, row)] ?? 0;
       const stack = stackAt.get(key(col, row));
-      if (terrainChips || trenchChips || stack) piles.push({ col, row, terrainChips, trenchChips, stack });
+      if (terrainChips.length || trenchChips || stack) piles.push({ col, row, terrainChips, trenchChips, stack });
     }
   }
 
@@ -57,7 +76,7 @@ export function renderBoard(svg, state, view) {
   for (const { col, row, terrainChips, trenchChips, stack } of piles) {
     const { x, y } = center(col, row, SIZE);
     const kinds = [
-      ...Array(terrainChips).fill('terrain-chip'),
+      ...terrainChips,
       ...Array(trenchChips).fill('trench-chip'),
       ...(stack ? [...Array(stack.men).fill('chip'), ...Array(stack.gear).fill('chip gear')] : []),
     ];

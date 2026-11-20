@@ -2,11 +2,18 @@ import {
   applyPool, applyToStack, attack, breakScore, canPayEntry, cardIssue, cardText, chooseMode, createGame, discardCard,
   doctrineLevel, eligibleStacks, endOrder, endTurn, getStack, inEnemyZoc, isCutOff, isDirectOrder, legalAssaults, legalAttacks,
   legalMerges, legalMoves, legalSplits, mergeStacks, moveStack, maxBonus, needsTarget, playCard, resolveHold,
-  resolveRetreat, retreatOptions, splitStack, strength, terrainAt,
+  resolveRetreat, retreatOptions, splitStack, strength, terrainBonus, featuresAt,
 } from './engine.js';
 import { renderBoard } from './render.js';
 
 const $ = (id) => document.getElementById(id);
+
+// e.g. "Verdun hills+river+fortress (+4 terrain)" for the selection info.
+function describeTerrain(col, row) {
+  const features = featuresAt(state, col, row);
+  if (!features.length) return 'open ground';
+  return `${features.join('+')} (+${terrainBonus(state, col, row)} terrain)`;
+}
 const svg = $('board');
 const turnLabel = $('turn');
 const infoPanel = $('info');
@@ -145,7 +152,7 @@ function drawInfo() {
     return;
   }
   const lines = [
-    `${stack.id}: ${stack.men} men + ${stack.gear} gear on ${terrainAt(state, stack.col, stack.row)} ` +
+    `${stack.id}: ${stack.men} men + ${stack.gear} gear on ${describeTerrain(stack.col, stack.row)} ` +
       `(${stack.col},${stack.row}). Defends at ${strength(state, stack, true)}.` +
       `${stack.fought ? ' Fought this turn: cannot step.' : stack.moved ? ' Already stepped this turn.' : ''}` +
       `${isCutOff(state, stack) ? ' CUT OFF: no supply path home, it can do nothing.' : ''}`,

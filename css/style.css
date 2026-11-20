@@ -48,14 +48,47 @@ aside h2:first-child { margin-top: 0; }
 .swatch { width: 1rem; height: 1rem; border-radius: 3px; border: 1px solid #0006; }
 
 .hex { stroke: #0007; stroke-width: 1; cursor: default; fill: #7d8f5c; }
+.hex.rough { fill: #66743f; }
+.hex.fortified, .hex.fortress { fill: #8a8a82; }
+.hex.mountain { fill: #8b7e6a; }
+.hex.hills { fill: #a39158; }
+.hex.forest { fill: #4f6b3a; }
+.hex.marsh { fill: #6f9a85; }
+.hex.city { fill: #9a958a; }
+.hex.bigcity { fill: #b3aea2; }
+.hex.sea { fill: #2c5a82; stroke: #0004; pointer-events: none; }
 .hex.target { fill: #d8c35a; cursor: pointer; }
 .hex.entry { fill: #e8924a; cursor: pointer; }
+.place { font-size: 14px; fill: #fff; fill-opacity: .85; pointer-events: none; paint-order: stroke; stroke: #000b; stroke-width: 3px; }
+.country { font-size: 20px; font-weight: bold; letter-spacing: 4px; fill: #fff; fill-opacity: .4; pointer-events: none; }
+.river { fill: none; stroke: #4a90d0; stroke-width: 4; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
+.river.big { stroke: #2a62b0; stroke-width: 9; }
 .zoc { fill: #e0402e; fill-opacity: .16; pointer-events: none; }
 .swatch.zoc { background: #e0402e55; }
 .swatch.entry { background: #e8924a; }
 .swatch.terrain { background: #8a6a3a; border-radius: 50%; }
 .swatch.trench { background: #3b3b3b; border-radius: 50%; }
+.swatch.rough { background: #66743f; }
+.swatch.fortified { background: #8a8a82; }
+.swatch.sea { background: #2c5a82; }
+.swatch.mountain { background: #8b7e6a; }
+.swatch.hills { background: #a39158; }
+.swatch.forest { background: #4f6b3a; }
+.swatch.marsh { background: #6f9a85; }
+.swatch.city { background: #9a958a; }
+.swatch.bigcity { background: #b3aea2; }
+.swatch.river { background: #4a90d0; height: .4rem; }
+.swatch.bigriver { background: #2a62b0; height: .6rem; }
 .terrain-chip { fill: #8a6a3a; stroke: #2e2210; stroke-width: 1; }
+.terrain-chip.f-mountain { fill: #7a6a58; }
+.terrain-chip.f-hills { fill: #b09a5a; }
+.terrain-chip.f-forest { fill: #355a2a; }
+.terrain-chip.f-marsh { fill: #5f9a88; }
+.terrain-chip.f-river { fill: #4a90d0; }
+.terrain-chip.f-bigriver { fill: #2a62b0; }
+.terrain-chip.f-city { fill: #a8a49a; }
+.terrain-chip.f-bigcity { fill: #d0ccc0; }
+.terrain-chip.f-fortress, .terrain-chip.f-fortified { fill: #606060; }
 .trench-chip { fill: #3b3b3b; stroke: #000; stroke-width: 1; }
 .pile { pointer-events: none; }
 #bonus button.on, #modes button.on { background: #d4af37; color: #000; }
@@ -82,11 +115,15 @@ aside h2:first-child { margin-top: 0; }
 .swatch.cutoff { background: none; border: 2px dotted #b36bff; border-radius: 50%; }
 .stack .chip.gear { fill: #d4af37; stroke: #5c4400; }
 .tint { pointer-events: none; }
-.tint-A { fill: #e0402e; fill-opacity: .13; }
-.tint-B { fill: #3a82e0; fill-opacity: .13; }
-.border { stroke: #f2efe3; stroke-width: 3; stroke-linecap: round; stroke-dasharray: 2 6; pointer-events: none; }
+.tint-A, .tint-F { fill: #e0402e; fill-opacity: .13; }
+.tint-B, .tint-G { fill: #3a82e0; fill-opacity: .13; }
+.tint-L { fill: #3fb06a; fill-opacity: .2; }
+.tint-N { fill: #f08a2c; fill-opacity: .18; }
+.tint-E { fill: #e8d24a; fill-opacity: .18; }
+.border { fill: none; stroke: #f2efe3; stroke-width: 3; stroke-dasharray: 10 5; stroke-linejoin: round; pointer-events: none; }
 .swatch.terr-A { background: #c0392b; }
 .swatch.terr-B { background: #2e6fbf; }
+.swatch.terr-N { background: #d9a64a; }
 .swatch.gear { background: #d4af37; border-radius: 50%; }
 .swatch.spent { background: #c0392b; opacity: 0.55; border-radius: 50%; border: 1px dashed #fff; }
 #decision { background: #3a2f12; border: 1px solid #d4af37; border-radius: 4px; padding: .6rem; margin-top: 1rem; font-size: .9rem; }

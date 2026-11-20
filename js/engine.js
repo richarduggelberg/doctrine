@@ -3,7 +3,13 @@
 import { key, neighbors } from './hex.js';
 
 export const PLAYERS = ['A', 'B'];
-export const TERRAIN_BONUS = { open: 0, rough: 1, fortified: 2 };
+// Terrain modifiers, each worth this many chips of defence. A hex may carry several, written "hills+bigriver+city"
+// in the map, and they all stack (the attacker pays for every one of them in blood).
+export const TERRAIN_BONUS = {
+  open: 0, sea: 0, rough: 1, fortified: 2,
+  forest: 1, hills: 1, marsh: 1, mountain: 2,
+  river: 1, bigriver: 2, city: 1, bigcity: 2, fortress: 2,
+};
 export const MIN_ATTACKER_MEN = 2;
 export const HOLD_LOSS = 1; // on top of the attrition man: standing costs 2 men in total
 
@@ -52,8 +58,14 @@ function shuffle(state, items) {
   return items;
 }
 
-export function territoryOf(state, col) {
+export function territoryOf(state, col, row) {
+  if (state.countries) return state.owners[state.countries[row]?.[col]] ?? null;
   return col <= state.borderCol ? PLAYERS[0] : PLAYERS[1];
+}
+
+// Country code of a hex ('~' for sea); only maps with countries have one.
+export function countryAt(state, col, row) {
+  return state.countries?.[row]?.[col] ?? null;
 }
 
 // Break score: how close a nation is to giving up. Public information (casualties,
@@ -62,7 +74,7 @@ export function breakScore(state, owner) {
   const s = state.surrender;
   let score = state.casualties[owner] + s.battleWeight * state.battlesLost[owner] + state.weariness[owner];
   for (const stack of state.stacks) {
-    if (stack.owner === owner || territoryOf(state, stack.col) !== owner) continue;
+    if (stack.owner === owner || territoryOf(state, stack.col, stack.row) !== owner) continue;
     const cap = state.capitals[owner];
     score += stack.col === cap.col && stack.row === cap.row ? s.capitalWeight : s.homeHexWeight;
   }
@@ -127,9 +139,15 @@ export function createGame(map, config, seed = 1) {
   const state = {
     cols: map.cols,
     rows: map.rows,
-    // Columns up to borderCol are Player A's territory, the rest Player B's.
+    // Territory follows the countries: `countries` has one letter per hex (one string per row) and `owners` says
+    // which player each country belongs to; the rest (Belgium, ...) is neutral. Without them, columns up to
+    // `borderCol` are Player A's and the rest Player B's.
+    countries: map.countries ?? null,
+    owners: map.owners ?? {},
     borderCol: map.borderCol ?? Math.floor(map.cols / 2) - 1,
     terrain: { ...map.terrain },
+    // Map decoration only (labels, outlines, rivers), in hex units; the rules never read it.
+    scenery: { places: map.places ?? [], borders: map.borders ?? [], rivers: map.rivers ?? [], countryLabels: map.countryLabels ?? [] },
     capitals: structuredClone(map.capitals),
     stacks,
     idCounters: counters,
@@ -189,11 +207,22 @@ export function createGame(map, config, seed = 1) {
 }
 
 export function inBounds(state, col, row) {
-  return col >= 0 && row >= 0 && col < state.cols && row < state.rows;
+  return col >= 0 && row >= 0 && col < state.cols && row < state.rows && terrainAt(state, col, row) !== 'sea';
 }
 
 export function terrainAt(state, col, row) {
   return state.terrain[key(col, row)] ?? 'open';
+}
+
+// The modifiers on a hex, e.g. ['hills', 'bigriver', 'city'] for "hills+bigriver+city".
+export function featuresAt(state, col, row) {
+  const terrain = terrainAt(state, col, row);
+  return terrain === 'open' ? [] : terrain.split('+');
+}
+
+// Defence from terrain alone: the sum of every modifier on the hex.
+export function terrainBonus(state, col, row) {
+  return featuresAt(state, col, row).reduce((sum, f) => sum + (TERRAIN_BONUS[f] ?? 0), 0);
 }
 
 export function stackAt(state, col, row) {
@@ -206,7 +235,7 @@ export function getStack(state, id) {
 
 // Terrain and trench chips in a hex: the defence a stack there gets, and what an attacker pays in blood.
 export function fortification(state, col, row) {
-  return (TERRAIN_BONUS[terrainAt(state, col, row)] ?? 0) + (state.defense[key(col, row)] ?? 0);
+  return terrainBonus(state, col, row) + (state.defense[key(col, row)] ?? 0);
 }
 
 // A stack that has just advanced is spent: -1 strength until its owner's next turn begins.
@@ -422,7 +451,7 @@ function poolOptions(state, mode, stack) {
     case 'rally': return stack.gear < value('limit') ? [stack] : [];
     case 'merge': return adjacentStacks(state, stack, true);
     case 'split': return stack.men >= 2 ? freeNeighbors(state, stack) : [];
-    case 'recruit': return territoryOf(state, stack.col) === stack.owner ? [stack] : [];
+    case 'recruit': return territoryOf(state, stack.col, stack.row) === stack.owner ? [stack] : [];
     default: return [];
   }
 }
