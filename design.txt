@@ -1,4 +1,4 @@
-﻿DOCTRINE - DESIGN DOCUMENT
+DOCTRINE - DESIGN DOCUMENT
 ==========================
 Status: DRAFT 0.1 - captures the initial vision plus open questions.
 Sections marked [OPEN] are undecided. Sections marked [PROPOSAL] are my
@@ -398,8 +398,8 @@ Everything else is deferred.
       lower Rhine, lower Meuse and Scheldt estuary are big. Sea is impassable.
       Legacy "rough" (+1) and "fortified" (+2) still work. Capitals: Paris (A)
       and Essen (B).
-    - Stacks per side pre-placed on the Franco-German border (see M4b), 5 men
-      each. Belgium, Luxembourg and the Netherlands start empty.
+    - Stacks per side pre-placed as the 1914 armies (see M4b), 3-5 men chips
+      each, 1 chip = 30,000 men. Belgium, Luxembourg and the Netherlands start empty.
     - Doctrine (SUPERSEDED by M5, see 18.6): a preset of 6 doctrine cards
       whose per-suit count sets the magnitude of that suit's orders:
         Player A: 3 Aggressive, 2 Reorganizational, 1 Defensive
@@ -564,20 +564,28 @@ playtests disagree):
   M4b decisions (setting and layout):
   - Territory follows the countries: France is Player A's (red tint), Germany
     Player B's (blue tint); Belgium, Luxembourg and the Netherlands are neutral
-    ground (own tints) and count for nobody. Dashed lines are the 1914 borders.
+    ground (own tints) and count for nobody. Borders are pale lines drawn along
+    hex edges (every hex belongs to exactly one country); rivers are lines
+    through hex centres, and every hex on one carries the river modifier.
     Set by "countries" (one letter per hex) and "owners" in data/map.json;
     "borderCol" is the straight-line default for maps without countries.
     Territory does not change hands
     when occupied; an enemy stack standing in it simply counts for the break
     score. (Idea for later: occupation flips ownership, ties into peace.)
-  - All stacks start on the Franco-German border: French stacks on the French
-    hexes touching Germany, German stacks one hex further back, so an empty
-    hex lies between the armies and nobody can attack on turn 1. No stacks
+  - Armies start as in August 1914, from educated guesses (not exact orders of
+    battle): France's 1st-5th Armies in Lorraine and the Ardennes edge (34 chips
+    ~ 1.0 million men), Germany's 1st-7th Armies from Aachen down to Alsace-
+    Lorraine (48 chips ~ 1.4 million). The BEF, the Belgian army and the French
+    Army of Alsace are left out. One men chip = 30,000 soldiers (about a corps,
+    `menPerChip` in data/map.json). Each army is split into stacks of at most 5
+    chips (3-5 here), set by ARMIES in tools/genmap.mjs; stacks carry an `army`
+    name shown on selection. Every stack stands in its own country and the two
+    sides are at least 2 hexes apart, so nobody can attack on turn 1. No stacks
     start in the neutral countries, which stay open for flank marches.
     Capitals are far at the back (Essen is much further than Paris).
-  - Stacks start at 5 men (was 3). Strength 5 vs the 8-12 break thresholds:
-    watch in playtests whether the thresholds should rise with the bigger
-    armies.
+  - Stack size varies with the army (was a flat 5, originally 3). Strength is
+    5 at most vs the 8-12 break thresholds: watch in playtests whether the
+    thresholds should rise with the bigger armies.
   - Gear/experience is a physical chip: each gear point adds a gold chip on
     top of the stack, the same colour for both players (label "men+gear").
 

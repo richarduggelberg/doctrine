@@ -120,7 +120,7 @@ aside h2:first-child { margin-top: 0; }
 .tint-L { fill: #3fb06a; fill-opacity: .2; }
 .tint-N { fill: #f08a2c; fill-opacity: .18; }
 .tint-E { fill: #e8d24a; fill-opacity: .18; }
-.border { fill: none; stroke: #f2efe3; stroke-width: 3; stroke-dasharray: 10 5; stroke-linejoin: round; pointer-events: none; }
+.border { fill: none; stroke: #f2efe3; stroke-width: 4; stroke-linecap: round; pointer-events: none; }
 .swatch.terr-A { background: #c0392b; }
 .swatch.terr-B { background: #2e6fbf; }
 .swatch.terr-N { background: #d9a64a; }

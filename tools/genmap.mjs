@@ -3,7 +3,7 @@
 // (France, Germany, Belgium, the Netherlands, Luxembourg), terrain (forest, hills, mountains, marsh),
 // rivers and cities. Run: node tools/genmap.mjs [--ascii]
 import { writeFileSync } from 'node:fs';
-import { distance, neighbors } from '../js/hex.js';
+import { distance } from '../js/hex.js';
 
 const COLS = 25;
 const ROWS = 26;
@@ -101,9 +101,6 @@ const COUNTRIES = {
   G: { name: 'Germany', polygon: [...NG, [9.5, 53.0], [9.5, 46.5], [7.0, 46.5], ...rev(FG), ...LG, ...BG], label: [7.6, 49.3] },
 };
 const OWNERS = { F: 'A', G: 'B' }; // France is Player A, Germany Player B; the rest is neutral ground
-const BORDER_LINES = [
-  ['F', 'E', FB], ['F', 'L', FL], ['F', 'G', FG], ['L', 'E', LB], ['L', 'G', LG], ['E', 'G', BG], ['E', 'N', BN], ['N', 'G', NG],
-];
 
 // ---------------------------------------------------------------- terrain areas (first match wins, top down)
 const MOUNTAINS = [
@@ -225,26 +222,69 @@ for (const { col, row } of allHexes) {
   else if (MARSHES.some((poly) => inPolygon(p, poly))) ground[k] = 'marsh';
 }
 
-// A river marks every hex it spends a few kilometres in, so the rivers form unbroken lines of hexes.
+// Rivers run through hex centres: every waypoint is snapped to a hex and consecutive hexes are joined by a
+// hex line, so each river is an unbroken chain of adjacent hexes. A chain is cut where it meets the sea
+// or the map edge.
+const cubeOf = ({ col, row }) => {
+  const x = col - (row - (row & 1)) / 2;
+  return { x, y: -x - row, z: row };
+};
+function cubeRound({ x, y, z }) {
+  let rx = Math.round(x);
+  let ry = Math.round(y);
+  let rz = Math.round(z);
+  const dx = Math.abs(rx - x);
+  const dy = Math.abs(ry - y);
+  const dz = Math.abs(rz - z);
+  if (dx > dy && dx > dz) rx = -ry - rz;
+  else if (dy > dz) ry = -rx - rz;
+  else rz = -rx - ry;
+  return { col: rx + (rz - (rz & 1)) / 2, row: rz };
+}
+function hexLine(a, b) {
+  const p = cubeOf(a);
+  const q = cubeOf(b);
+  const n = distance(a, b);
+  const out = [];
+  for (let i = 0; i <= n; i++) {
+    const t = n === 0 ? 0 : i / n;
+    // The tiny nudge keeps ties from landing exactly on an edge.
+    out.push(cubeRound({
+      x: p.x + (q.x - p.x) * t + 1e-6,
+      y: p.y + (q.y - p.y) * t + 2e-6,
+      z: p.z + (q.z - p.z) * t - 3e-6,
+    }));
+  }
+  return out;
+}
+const onMap = (h) => h.col >= 0 && h.row >= 0 && h.col < COLS && h.row < ROWS && !sea.has(key(h.col, h.row));
+
 const riverOf = {};
-for (const { big, line } of RIVERS) {
-  const counts = {};
-  const uv = line.map(toUV);
-  for (let i = 1; i < uv.length; i++) {
-    const [u0, v0] = uv[i - 1];
-    const [u1, v1] = uv[i];
-    const steps = Math.max(1, Math.ceil(Math.hypot(u1 - u0, v1 - v0) / 0.1));
-    for (let s = 0; s <= steps; s++) {
-      const h = hexAt([u0 + ((u1 - u0) * s) / steps, v0 + ((v1 - v0) * s) / steps]);
-      const k = key(h.col, h.row);
-      counts[k] = (counts[k] ?? 0) + 1;
+const riverRuns = [];
+for (const { name, big, line } of RIVERS) {
+  const waypoints = line.map((p) => hexAt(toUV(p)));
+  const path = [];
+  for (let i = 1; i < waypoints.length; i++) {
+    for (const h of hexLine(waypoints[i - 1], waypoints[i])) {
+      const last = path.at(-1);
+      if (!last || last.col !== h.col || last.row !== h.row) path.push(h);
     }
   }
-  for (const [k, n] of Object.entries(counts)) {
-    const [col, row] = k.split(',').map(Number);
-    if (n < 3 || col < 0 || row < 0 || col >= COLS || row >= ROWS || sea.has(k)) continue;
+  let run = [];
+  const flush = () => {
+    if (run.length > 1) riverRuns.push({ name, big: Boolean(big), hexes: run.map((h) => [h.col, h.row]) });
+    run = [];
+  };
+  for (const h of path) {
+    if (!onMap(h)) {
+      flush();
+      continue;
+    }
+    run.push(h);
+    const k = key(h.col, h.row);
     riverOf[k] = big || riverOf[k] === 'bigriver' ? 'bigriver' : 'river';
   }
+  flush();
 }
 
 const cityOf = {};
@@ -280,54 +320,54 @@ const capitals = Object.fromEntries(
   }),
 );
 
-// ---------------------------------------------------------------- armies on the Franco-German border
-// A (France) stands on its border hexes; B (Germany) stands one hex further back, so an empty hex of
-// no man's land lies between them. Neutral countries stay empty.
-const isLand = (c, r) => c >= 0 && r >= 0 && c < COLS && r < ROWS && !sea.has(key(c, r));
-const holds = (code) => (c, r) => isLand(c, r) && country[key(c, r)] === code;
-const isFrench = holds('F');
-const isGerman = holds('G');
-const touches = (h, pred) => neighbors(h.col, h.row).some((n) => pred(n.col, n.row));
-const aLine = allHexes.filter((h) => isFrench(h.col, h.row) && touches(h, isGerman));
-const bFront = allHexes.filter((h) => isGerman(h.col, h.row) && touches(h, isFrench));
-const inBFront = (c, r) => bFront.some((h) => h.col === c && h.row === r);
-const bLine = allHexes.filter((h) => isGerman(h.col, h.row) && !inBFront(h.col, h.row) && touches(h, inBFront));
-
-// Orders hexes into a path along the border, from the north end, always stepping to the nearest hex.
-function walk(hexes) {
-  const left = [...hexes].sort((p, q) => p.row - q.row || p.col - q.col);
-  const path = [left.shift()];
-  while (left.length) {
-    const last = path.at(-1);
-    let best = 0;
-    left.forEach((h, i) => {
-      if (distance(h, last) < distance(left[best], last)) best = i;
-    });
-    path.push(left.splice(best, 1)[0]);
-  }
-  return path;
-}
-const STEP = 2;
-const spaced = (hexes) => {
-  const path = walk(hexes);
-  const picked = path.filter((_, i) => i % STEP === 0);
-  if (path.length % STEP !== 1) picked.push(path.at(-1));
-  return picked;
-};
-const aStacks = spaced(aLine);
-const bStacks = spaced(bLine);
-// Equal armies: the shorter side digs in an extra stack on its own line, as far from its other stacks as possible.
-for (const [line, mine, theirs] of [[aLine, aStacks, bStacks], [bLine, bStacks, aStacks]]) {
-  while (mine.length < Math.max(aStacks.length, bStacks.length)) {
-    const gap = (h) => Math.min(...mine.map((s) => distance(s, h)));
-    const free = line.filter((h) => !mine.some((s) => distance(s, h) === 0) && theirs.every((s) => distance(s, h) >= 2));
-    mine.push(free.sort((p, q) => gap(q) - gap(p))[0]);
-  }
-}
-const stacks = [
-  ...aStacks.map((s) => ({ owner: 'A', col: s.col, row: s.row, men: 5 })),
-  ...bStacks.map((s) => ({ owner: 'B', col: s.col, row: s.row, men: 5 })),
+// ---------------------------------------------------------------- armies, August 1914
+// One men chip stands for MEN_PER_CHIP soldiers (about one army corps: a French corps was ~40,000 men, a
+// German one ~44,000, a division ~16-17,000). Each army is placed by its 1914 deployment area (lon, lat)
+// and split into stacks of at most 5 chips on the nearest free hexes of its own country. Educated
+// guesses at the strengths of the armies on the Franco-German front, in chips:
+//   France  1st Dubail 8, 2nd Castelnau 7, 3rd Ruffey 5, 4th Langle de Cary 6, 5th Lanrezac 8  (~1.0 million)
+//   Germany 1st Kluck 10, 2nd Buelow 8, 3rd Hausen 6, 4th Albrecht 6, 5th Crown Prince 7, 6th Rupprecht 7,
+//           7th Heeringen 4  (~1.4 million)
+// The BEF, the Belgians and the Army of Alsace at Belfort are off the board or neutral, so left out.
+const MEN_PER_CHIP = 30000;
+const MAX_STACK = 5;
+const ARMIES = [
+  { owner: 'A', army: 'French 1st Army', chips: 8, at: [6.55, 48.4] }, // Epinal, the Vosges
+  { owner: 'A', army: 'French 2nd Army', chips: 7, at: [6.2, 48.8] }, // Nancy
+  { owner: 'A', army: 'French 3rd Army', chips: 5, at: [5.45, 49.2] }, // Verdun
+  { owner: 'A', army: 'French 4th Army', chips: 6, at: [4.95, 49.55] }, // Sedan, Stenay
+  { owner: 'A', army: 'French 5th Army', chips: 8, at: [4.3, 49.85] }, // Hirson, Mezieres
+  { owner: 'B', army: 'German 1st Army', chips: 10, at: [6.3, 50.9] }, // Aachen
+  { owner: 'B', army: 'German 2nd Army', chips: 8, at: [6.75, 50.5] }, // Monschau, northern Eifel
+  { owner: 'B', army: 'German 3rd Army', chips: 6, at: [6.75, 50.1] }, // Eifel
+  { owner: 'B', army: 'German 4th Army', chips: 6, at: [6.8, 49.7] }, // Trier
+  { owner: 'B', army: 'German 5th Army', chips: 7, at: [6.5, 49.3] }, // Thionville, Metz
+  { owner: 'B', army: 'German 6th Army', chips: 7, at: [7.0, 48.85] }, // Lorraine, Saarburg
+  { owner: 'B', army: 'German 7th Army', chips: 4, at: [7.7, 48.5] }, // Strasbourg, Alsace
 ];
+const HOME = { A: 'F', B: 'G' };
+const stacks = [];
+const taken = new Set();
+for (const { owner, army, chips, at } of ARMIES) {
+  const count = Math.ceil(chips / MAX_STACK);
+  const free = allHexes
+    .filter((h) => country[key(h.col, h.row)] === HOME[owner] && !taken.has(key(h.col, h.row)))
+    .map((h) => {
+      const p = lonLat(h.col, h.row);
+      return { ...h, d: Math.hypot((p.lon - at[0]) * KM_PER_LON, (p.lat - at[1]) * KM_PER_LAT) };
+    })
+    .sort((p, q) => p.d - q.d);
+  for (let i = 0; i < count; i++) {
+    const men = Math.floor(chips / count) + (i < chips % count ? 1 : 0);
+    stacks.push({ owner, col: free[i].col, row: free[i].row, men, army });
+    taken.add(key(free[i].col, free[i].row));
+  }
+}
+for (const a of stacks.filter((s) => s.owner === 'A')) {
+  for (const b of stacks.filter((s) => s.owner === 'B')) {
+    if (distance(a, b) < 2) throw new Error(`${a.army} at ${a.col},${a.row} touches ${b.army} at ${b.col},${b.row}`);
+  }
+}
 
 // Trench chips where the armies stand; the capitals are dug in deeper.
 const defense = {};
@@ -350,8 +390,6 @@ const entries = (obj, per) => {
   return `{\n${lines.join(',\n')}\n  }`;
 };
 const list = (items) => `[\n${items.map((item) => '    ' + JSON.stringify(item)).join(',\n')}\n  ]`;
-const borders = BORDER_LINES.map(([a, b, chain]) => ({ between: [a, b], line: chain.map(toUV).map(round) }));
-const rivers = RIVERS.map(({ name, big, line }) => ({ name, big: Boolean(big), line: line.map(toUV).map(round) }));
 const countryLabels = Object.entries(COUNTRIES).map(([code, c]) => ({ code, name: c.name, at: round(toUV(c.label)) }));
 const countryNames = Object.fromEntries(Object.entries(COUNTRIES).map(([code, c]) => [code, c.name]));
 
@@ -360,6 +398,7 @@ writeFileSync(
   `{
   "name": "Western Front, Paris to the Ruhr",
   "hexKm": ${HEX_KM},
+  "menPerChip": ${MEN_PER_CHIP},
   "cols": ${COLS},
   "rows": ${ROWS},
   "countries": ${list(countries)},
@@ -370,8 +409,7 @@ writeFileSync(
   "capitals": ${JSON.stringify(capitals)},
   "places": ${list(places)},
   "countryLabels": ${list(countryLabels)},
-  "borders": ${list(borders)},
-  "rivers": ${list(rivers)},
+  "rivers": ${list(riverRuns)},
   "stacks": ${list(stacks)}
 }
 `,
@@ -401,6 +439,6 @@ if (process.argv.includes('--ascii')) {
     }
     console.log(String(row).padStart(2), line);
   }
-  console.log(`${aStacks.length} stacks per side`);
+  console.log(`${stacks.filter((s) => s.owner === 'A').reduce((n, s) => n + s.men, 0)} chips A, ${stacks.filter((s) => s.owner === 'B').reduce((n, s) => n + s.men, 0)} chips B`);
   console.log(Object.entries(terrain).filter(([, v]) => v.split('+').length >= 3).map(([k, v]) => `${k}: ${v}`).join('\n'));
 }

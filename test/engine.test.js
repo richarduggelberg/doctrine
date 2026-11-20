@@ -73,12 +73,11 @@ test('neighbor relation is symmetric and distance matches adjacency', () => {
   }
 });
 
-test('setup: equal armies, 5-card hands, and a seeded deck', () => {
+test('setup: 1914 armies, 5-card hands, and a seeded deck', () => {
   const state = createGame(map, config, 42);
-  const perSide = state.stacks.filter((s) => s.owner === 'A').length;
-  assert.ok(perSide >= 4);
-  assert.equal(state.stacks.filter((s) => s.owner === 'B').length, perSide);
-  assert.equal(new Set(state.stacks.map((s) => `${s.col},${s.row}`)).size, 2 * perSide);
+  const count = (owner) => state.stacks.filter((s) => s.owner === owner).length;
+  assert.ok(count('A') >= 4 && count('B') >= 4);
+  assert.equal(new Set(state.stacks.map((s) => `${s.col},${s.row}`)).size, state.stacks.length);
   for (const s of state.stacks) assert.ok(inBounds(state, s.col, s.row));
   assert.equal(state.hands.A.length, 5);
   assert.equal(state.hands.B.length, 5);
@@ -97,7 +96,7 @@ test('armies start in their own territory on the front line, out of contact', ()
   for (const s of state.stacks) {
     assert.equal(territoryOf(state, s.col, s.row), s.owner);
     assert.ok(inBounds(state, s.col, s.row), `${s.id} is on land`);
-    assert.equal(s.men, 5);
+    assert.ok(s.men >= 3 && s.men <= 5);
   }
   const gap = Math.min(
     ...state.stacks.filter((s) => s.owner === 'A').flatMap((a) =>
@@ -575,19 +574,32 @@ test('the five countries: France and Germany belong to the players, the rest is 
   }
 });
 
-test('both armies start on the Franco-German border and nobody starts in a neutral country', () => {
+test('armies start as in August 1914: French and German field armies at home, none in neutral countries', () => {
   const state = createGame(map, config);
   for (const s of state.stacks) {
-    const home = s.owner === 'A' ? 'F' : 'G';
-    const foe = s.owner === 'A' ? 'G' : 'F';
-    assert.equal(countryAt(state, s.col, s.row), home);
-    // Within two hexes of the other country: French hexes touch the border, German ones stand one back.
-    const nearBorder = (r) =>
-      [...Array(state.cols * state.rows).keys()].some((i) => {
-        const hex = { col: i % state.cols, row: Math.floor(i / state.cols) };
-        return countryAt(state, hex.col, hex.row) === foe && distance(hex, s) <= r;
-      });
-    assert.ok(nearBorder(2), `${s.id} is on the border`);
+    assert.equal(countryAt(state, s.col, s.row), s.owner === 'A' ? 'F' : 'G');
+    assert.ok(s.army, `${s.id} is a named army`);
+  }
+  const armies = (owner) => [...new Set(state.stacks.filter((s) => s.owner === owner).map((s) => s.army))];
+  assert.equal(armies('A').length, 5, 'French 1st-5th Armies');
+  assert.equal(armies('B').length, 7, 'German 1st-7th Armies');
+  const soldiers = (owner) =>
+    state.stacks.filter((s) => s.owner === owner).reduce((n, s) => n + s.men, 0) * state.menPerChip;
+  assert.ok(soldiers('A') > 900_000 && soldiers('A') < 1_300_000, 'about a million Frenchmen');
+  assert.ok(soldiers('B') > 1_200_000 && soldiers('B') < 1_700_000, 'about 1.4 million Germans');
+});
+
+test('country borders follow hex edges and rivers run through hex middles', () => {
+  const state = createGame(map, config);
+  for (const river of state.scenery.rivers) {
+    for (let i = 1; i < river.hexes.length; i++) {
+      const [a, b] = [river.hexes[i - 1], river.hexes[i]];
+      assert.equal(distance({ col: a[0], row: a[1] }, { col: b[0], row: b[1] }), 1, `${river.name} is unbroken`);
+    }
+    for (const [col, row] of river.hexes) {
+      const features = featuresAt(state, col, row);
+      assert.ok(features.includes('river') || features.includes('bigriver'), `${river.name} marks ${col},${row}`);
+    }
   }
 });
 

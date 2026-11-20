@@ -1,4 +1,4 @@
-import { center, corners, key } from './hex.js';
+import { center, corners, edgeSegments, key } from './hex.js';
 import { featuresAt, inBounds, isCutOff, strength, TERRAIN_BONUS, territoryOf, countryAt } from './engine.js';
 
 const SIZE = 36;
@@ -7,9 +7,8 @@ const CHIP_THICKNESS = 4;
 // The one feature that colours a hex, strongest first; the rest still show as terrain chips.
 const FILL_ORDER = ['mountain', 'fortified', 'fortress', 'bigcity', 'city', 'hills', 'forest', 'marsh', 'rough'];
 
-// Map decoration is stored in hex units (u across, v down); this turns it into SVG pixels.
+// Country labels are stored in hex units (u across, v down); this turns them into SVG pixels.
 const px = ([u, v]) => `${(SIZE * Math.sqrt(3) * u).toFixed(1)},${(SIZE * 1.5 * v).toFixed(1)}`;
-const polyline = (cls, line) => `<polyline class="${cls}" points="${line.map(px).join(' ')}"/>`;
 
 export function renderBoard(svg, state, view) {
   const width = SIZE * Math.sqrt(3) * (state.cols + 0.5) + SIZE;
@@ -39,9 +38,26 @@ export function renderBoard(svg, state, view) {
     }
   }
 
-  // Rivers run between hex centres' worth of ground, borders follow the real frontiers.
-  for (const river of scenery.rivers) parts.push(polyline(river.big ? 'river big' : 'river', river.line));
-  for (const border of scenery.borders) parts.push(polyline('border', border.line));
+  // Rivers run through the middles of their hexes; borders follow hex edges (one line per shared edge).
+  for (const river of scenery.rivers) {
+    const line = river.hexes.map(([c, r]) => { const p = center(c, r, SIZE); return `${p.x.toFixed(1)},${p.y.toFixed(1)}`; });
+    parts.push(`<polyline class="${river.big ? 'river big' : 'river'}" points="${line.join(' ')}"/>`);
+  }
+  if (state.countries) {
+    for (let row = 0; row < state.rows; row++) {
+      for (let col = 0; col < state.cols; col++) {
+        const home = countryAt(state, col, row);
+        if (home === '~') continue;
+        const segments = edgeSegments(col, row, SIZE, (c, r) => {
+          const other = c >= 0 && r >= 0 && c < state.cols && r < state.rows ? countryAt(state, c, r) : '~';
+          return other !== '~' && other > home;
+        });
+        for (const [p, q] of segments) {
+          parts.push(`<line class="border" x1="${p.x.toFixed(1)}" y1="${p.y.toFixed(1)}" x2="${q.x.toFixed(1)}" y2="${q.y.toFixed(1)}"/>`);
+        }
+      }
+    }
+  }
   for (const label of scenery.countryLabels) {
     const [x, y] = px(label.at).split(',');
     parts.push(`<text class="country" x="${x}" y="${y}" text-anchor="middle">${label.name.toUpperCase()}</text>`);

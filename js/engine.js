@@ -128,6 +128,7 @@ export function createGame(map, config, seed = 1) {
     col: s.col,
     row: s.row,
     men: s.men,
+    army: s.army ?? null, // historical name, display only
     gear: 0,
     braced: 0,
     spent: false,
@@ -147,7 +148,8 @@ export function createGame(map, config, seed = 1) {
     borderCol: map.borderCol ?? Math.floor(map.cols / 2) - 1,
     terrain: { ...map.terrain },
     // Map decoration only (labels, outlines, rivers), in hex units; the rules never read it.
-    scenery: { places: map.places ?? [], borders: map.borders ?? [], rivers: map.rivers ?? [], countryLabels: map.countryLabels ?? [] },
+    scenery: { places: map.places ?? [], rivers: map.rivers ?? [], countryLabels: map.countryLabels ?? [] },
+    menPerChip: map.menPerChip ?? null,
     capitals: structuredClone(map.capitals),
     stacks,
     idCounters: counters,

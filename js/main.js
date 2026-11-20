@@ -152,7 +152,7 @@ function drawInfo() {
     return;
   }
   const lines = [
-    `${stack.id}: ${stack.men} men + ${stack.gear} gear on ${describeTerrain(stack.col, stack.row)} ` +
+    `${stack.id}${stack.army ? ` (${stack.army})` : ''}: ${stack.men} men chips${state.menPerChip ? ` (~${(stack.men * state.menPerChip).toLocaleString('en-US')} soldiers)` : ''} + ${stack.gear} gear on ${describeTerrain(stack.col, stack.row)} ` +
       `(${stack.col},${stack.row}). Defends at ${strength(state, stack, true)}.` +
       `${stack.fought ? ' Fought this turn: cannot step.' : stack.moved ? ' Already stepped this turn.' : ''}` +
       `${isCutOff(state, stack) ? ' CUT OFF: no supply path home, it can do nothing.' : ''}`,
