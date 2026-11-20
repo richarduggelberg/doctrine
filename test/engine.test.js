@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   applyToStack, attack, breakScore, cardIssue, createGame, discardCard, eligibleStacks, endOrder, endTurn,
-  inBounds, legalAttacks, legalMerges, legalMoves, legalSplits, mergeStacks, moveStack, playCard,
+  inBounds, legalAttacks, legalMerges, legalMoves, legalSplits, maxBonus, mergeStacks, moveStack, playCard,
   resolveHold, resolveRetreat, retreatOptions, splitStack, stackAt, strength, territoryOf,
 } from '../js/engine.js';
 import { distance, neighbors } from '../js/hex.js';
@@ -106,13 +106,13 @@ test('every card is playable by either doctrine; the suit level sets its magnitu
   const state = duel(3, 3);
   const aOffensive = give(state, 'offensive');
   assert.equal(cardIssue(aOffensive, aOffensive.hands.A.at(-1)), null);
-  assert.equal(play(state, 'offensive').active.bonus, 3); // A: 3 aggressive cards
-  assert.equal(play(setDoctrine(state, 'A', { aggressive: 1 }), 'offensive').active.bonus, 1);
-  assert.equal(play(setDoctrine(state, 'A', { aggressive: 0 }), 'offensive').active.bonus, 0);
-  assert.equal(play(setDoctrine(state, 'A', { aggressive: 9 }), 'offensive').active.bonus, 3, 'level is capped');
+  assert.equal(play(state, 'offensive').active.points, 3); // A: 3 aggressive cards
+  assert.equal(play(setDoctrine(state, 'A', { aggressive: 1 }), 'offensive').active.points, 1);
+  assert.equal(play(setDoctrine(state, 'A', { aggressive: 0 }), 'offensive').active.points, 0);
+  assert.equal(play(setDoctrine(state, 'A', { aggressive: 9 }), 'offensive').active.points, 3, 'level is capped');
   const bOffensive = give(endTurn(state), 'offensive');
   assert.equal(cardIssue(bOffensive, bOffensive.hands.B.at(-1)), null);
-  assert.equal(play(endTurn(state), 'offensive').active.bonus, 0); // B: no aggressive cards
+  assert.equal(play(endTurn(state), 'offensive').active.points, 0); // B: no aggressive cards
 });
 
 test('doctrine sets hidden thresholds (willingness) and the declared-doctrine resolve bonus', () => {
@@ -174,10 +174,8 @@ test('ties go to the defender; terrain, trenches and bracing add to defense', ()
   assert.equal(strength(braced, braced.stacks[1], true), 6);
 });
 
-test('Offensive adds its doctrine bonus to the attack', () => {
-  assert.equal(fight(3, 3, 'offensive').pending.winnerId, 'A1');
-  const weak = attack(play(setDoctrine(duel(3, 3), 'A', { aggressive: 0 }), 'offensive'), 'A1', 'B1');
-  assert.equal(weak.pending.winnerId, 'B1'); // +0: a tie, defender wins
+test('Offensive with no aggressive doctrine is only a basic attack', () => {
+  assert.equal(maxBonus(play(setDoctrine(duel(3, 3), 'A', { aggressive: 0 }), 'offensive')), 0);
 });
 
 test('winning attacker loses 1 man, gains gear, and advances when the defender retreats', () => {
@@ -221,7 +219,18 @@ test('other actions are blocked while a battle awaits a decision', () => {
   assert.throws(() => attack(state, 'A1', 'B1'));
 });
 
-test('Double Offensive allows two different stacks to attack, not the same one twice', () => {
+test('Offensive points: +1 strength each on an attack, or 2 points buy an extra attack', () => {
+  assert.equal(fight(3, 3, 'offensive').pending.winnerId, 'B1'); // +0: a tie, defender wins
+  const armed = play(duel(3, 3), 'offensive'); // A: level 3 = 3 points
+  assert.equal(maxBonus(armed), 3);
+  assert.throws(() => attack(armed, 'A1', 'B1', 4));
+  const strong = attack(armed, 'A1', 'B1', 1);
+  assert.equal(strong.pending.winnerId, 'A1');
+  assert.equal(strong.active.points, 2);
+  assert.equal(attack(armed, 'A1', 'B1', 3).active, null, 'spending the pool ends the order');
+});
+
+test('an extra attack costs points, leaving less for bonuses; a different stack must make it', () => {
   const state = createGame(
     {
       cols: 7,
@@ -237,13 +246,17 @@ test('Double Offensive allows two different stacks to attack, not the same one t
     },
     config,
   );
-  let s = attack(play(setDoctrine(state, 'A', { aggressive: 2 }), 'double'), 'A1', 'B1');
+  let s = attack(play(state, 'offensive'), 'A1', 'B1', 1); // 3 points: 1 spent, 2 left
   s = resolveHold(s); // B1 destroyed
-  assert.equal(s.active.charges, 1);
+  assert.equal(maxBonus(s), 0); // the extra attack uses the remaining 2
+  assert.throws(() => attack(s, 'A2', 'B2', 1));
   assert.deepEqual(legalAttacks(s, 'A1'), []);
   assert.ok(eligibleStacks(s).every((st) => st.id !== 'A1'));
   s = attack(s, 'A2', 'B2');
   assert.equal(s.active, null);
+
+  // Bonus 2 leaves 1 point, which cannot pay for another attack.
+  assert.equal(attack(play(state, 'offensive'), 'A1', 'B1', 2).active, null);
 });
 
 test('Entrench adds trench chips up to the doctrine limit per hex', () => {

@@ -17,8 +17,7 @@ export function renderBoard(svg, state, view) {
   for (let row = 0; row < state.rows; row++) {
     for (let col = 0; col < state.cols; col++) {
       const { x, y } = center(col, row, SIZE);
-      const terrain = terrainAt(state, col, row);
-      const classes = ['hex', terrain];
+      const classes = ['hex'];
       if (targets.has(key(col, row))) classes.push('target');
       const points = corners(x, y, SIZE - 1);
       parts.push(`<polygon class="${classes.join(' ')}" data-col="${col}" data-row="${row}" points="${points}"/>`);
@@ -37,14 +36,22 @@ export function renderBoard(svg, state, view) {
     parts.push(`<text class="capital owner-${owner}" x="${x}" y="${y + SIZE * 0.86}" text-anchor="middle">★</text>`);
   }
 
-  // Trench chips sit on the hex itself, whoever occupies it.
-  for (const [hexKey, count] of Object.entries(state.defense)) {
-    const [col, row] = hexKey.split(',').map(Number);
-    const { x, y } = center(col, row, SIZE);
+  // Terrain chips (brown: 1 rough, 2 fortified) and trench chips (dark) sit in piles on the hex.
+  // They never move or attack; like men they count only for the defender.
+  const pile = (x, y, count, cls) => {
     for (let i = 0; i < count; i++) {
       parts.push(
-        `<rect class="trench" x="${x - 30 + i * 11}" y="${y + 14}" width="9" height="9" rx="2"/>`,
+        `<ellipse class="${cls}" cx="${x}" cy="${y - i * 4}" rx="10" ry="5.5"/>`,
       );
+    }
+  };
+  for (let row = 0; row < state.rows; row++) {
+    for (let col = 0; col < state.cols; col++) {
+      const { x, y } = center(col, row, SIZE);
+      const terrain = terrainAt(state, col, row);
+      const chips = terrain === 'fortified' ? 2 : terrain === 'rough' ? 1 : 0;
+      pile(x - 22, y + 14, chips, 'terrain-chip');
+      pile(x + 22, y + 14, state.defense[key(col, row)] ?? 0, 'trench-chip');
     }
   }
 

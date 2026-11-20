@@ -403,8 +403,8 @@ Everything else is deferred.
   Cards - one 40-card war deck, shared draw pile; hand of 5, play up to 2
   cards per turn, draw back to 5 at end of turn:
     General orders (no doctrine needed): Move, Hold, Basic Attack.
-    Aggressive: Offensive (+1 strength this attack), Double Offensive (two
-      stacks attack this turn).
+    Aggressive: Offensive (a pool of points, see M6; replaces Double
+      Offensive).
     Defensive: Entrench (place a defense chip), Counterattack (+1 when
       defending, reaction-free: played on own turn only).
     Reorganizational: Merge/Split stacks, Rally (recover 1 gear/exp).
@@ -575,8 +575,7 @@ playtests disagree):
     The budget forces a trade-off: more of one suit means less of another.
     Physically: lay the 6 cards in front of you, grouped by suit.
   - Level tables (data/cards.json "levels"), index = level 0,1,2,3:
-      Aggressive  Offensive bonus      +0 +1 +2 +3
-                  Double Offensive     1  2  2  3 attacks
+      Aggressive  Offensive points     0  1  2  3   (see M6)
       Defensive   Entrench max/hex     1  2  3  3
                   Defensive Posture    +1 +1 +2 +3 defense
       Reorg.      Rally while gear <   1  2  3  3
@@ -600,6 +599,27 @@ playtests disagree):
     a Reform card to move a doctrine card between suits mid-war.
   - Balance watch: A (attack 3) vs B (defence 3, +4 threshold). B looks
     stronger in defence and tougher to break; check in playtests.
+
+  M6 decisions - OFFENSIVE POINTS AND CHIP TERRAIN:
+  - Problem: at level 3 Aggressive had no real choice (just a bigger number).
+    Fix: the Offensive card (6 copies, Double Offensive removed) gives a POOL
+    of points equal to the Aggressive level (0,1,2,3). The first attack is
+    free. Each point adds +1 strength to one attack, OR 2 points buy one
+    extra attack by a different stack. Bonuses are chosen per attack (+0..+max
+    buttons in the order panel) before clicking the target.
+      Level 3 examples: one attack at +3; two attacks, one of them +1;
+      Level 2: one attack +2, or two attacks at +0. Level 1: one attack +1.
+  - Why it balances: spreading is expensive (2 points, and every attack
+    already costs the attacker a man), concentrating helps one battle only
+    and the defender still wins ties. Tuning knobs, all in data/cards.json:
+    "extraCost" on Offensive and the "points" row in the level table. No cap
+    on the bonus for now; add one (e.g. max +2) if +3 on one stack proves
+    too decisive.
+  - Terrain is now shown as chips: 1 brown chip on a rough hex, 2 on a
+    fortified hex; trench chips are dark; hexes themselves are all one
+    colour. Both are +1 defense each, defender only, never move or attack.
+    Rules and map data are unchanged (only the rendering moved to chips),
+    so a physical board can lay the same chips on a plain hex mat.
 
 
 

@@ -259,7 +259,14 @@ export function playCard(state, uid) {
     next.discard.push(card);
     return next;
   }
-  next.active = { card, kind: def.kind, charges: value('charges', 1), bonus: value('bonus'), used: [] };
+  next.active = {
+    card,
+    kind: def.kind,
+    charges: 1,
+    points: value('points'),
+    extraCost: def.extraCost ?? 0,
+    used: [],
+  };
   next.log.push(`${owner} plays ${def.name}`);
   return next;
 }
@@ -351,6 +358,14 @@ export function legalAttacks(state, id) {
   return adjacentStacks(state, stack, false);
 }
 
+// Offensive points are a pool: the first attack is free, every further attack costs
+// `extraCost` points, and each remaining point adds +1 strength to one attack.
+export function maxBonus(state) {
+  const a = state.active;
+  if (!a || a.kind !== 'attack') return 0;
+  return Math.max(0, a.points - (a.used.length ? a.extraCost : 0));
+}
+
 function loseMen(state, stack, count) {
   const lost = Math.min(count, stack.men);
   stack.men -= lost;
@@ -358,14 +373,20 @@ function loseMen(state, stack, count) {
   return lost;
 }
 
-export function attack(state, attackerId, defenderId) {
+export function attack(state, attackerId, defenderId, bonus = 0) {
   if (!legalAttacks(state, attackerId).some((t) => t.id === defenderId)) {
     throw new Error(`Illegal attack ${attackerId} -> ${defenderId}`);
+  }
+  if (!Number.isInteger(bonus) || bonus < 0 || bonus > maxBonus(state)) {
+    throw new Error(`Bonus ${bonus} is not affordable`);
   }
   const next = structuredClone(state);
   const attacker = getStack(next, attackerId);
   const defender = getStack(next, defenderId);
-  const bonus = next.active.bonus;
+  const a = next.active;
+  a.points -= bonus + (a.used.length ? a.extraCost : 0);
+  // One more attack is possible only if the pool can pay for it; consume() then ends the order otherwise.
+  a.charges = a.extraCost && a.points >= a.extraCost ? 2 : 1;
   const attackStrength = strength(next, attacker, false) + bonus;
   const defenseStrength = strength(next, defender, true);
   const attackerWins = attackStrength > defenseStrength; // ties go to the defender
@@ -385,7 +406,7 @@ export function attack(state, attackerId, defenderId) {
     defenderRow: defender.row,
   };
   next.log.push(
-    `${attackerId} (${attackStrength}) attacks ${defenderId} (${defenseStrength}): ${winner.id} wins. ` +
+    `${attackerId} (${attackStrength}${bonus ? `, incl. +${bonus}` : ''}) attacks ${defenderId} (${defenseStrength}): ${winner.id} wins. ` +
       `${loser.id} must hold or retreat.`,
   );
   consume(next, attackerId);

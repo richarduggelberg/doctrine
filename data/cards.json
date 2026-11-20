@@ -25,8 +25,7 @@
   },
   "levels": {
     "aggressive": {
-      "bonus": [0, 1, 2, 3],
-      "charges": [1, 2, 2, 3]
+      "points": [0, 1, 2, 3]
     },
     "defensive": {
       "trench": [1, 2, 3, 3],
@@ -49,10 +48,8 @@
     { "id": "hold", "name": "Hold", "suit": "general", "kind": "hold", "count": 2,
       "text": "One stack digs in: +1 defense until your next turn." },
 
-    { "id": "offensive", "name": "Offensive", "suit": "aggressive", "kind": "attack", "bonus": "bonus", "count": 4,
-      "text": "One stack attacks with +{bonus} strength." },
-    { "id": "double", "name": "Double Offensive", "suit": "aggressive", "kind": "attack", "charges": "charges", "count": 2,
-      "text": "Up to {charges} different stacks may each attack." },
+    { "id": "offensive", "name": "Offensive", "suit": "aggressive", "kind": "attack", "points": "points", "extraCost": 2, "count": 6,
+      "text": "{points} offensive points: each adds +1 strength to an attack, or 2 points buy one extra attack (first attack is free)." },
 
     { "id": "entrench", "name": "Entrench", "suit": "defensive", "kind": "entrench", "limit": "trench", "count": 4,
       "text": "Add a trench chip (+1 defense, max {limit} per hex) to a stack's hex." },

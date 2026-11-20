@@ -1,7 +1,7 @@
 import {
   applyToStack, attack, breakScore, cardIssue, cardText, createGame, discardCard, doctrineLevel, eligibleStacks, endOrder, endTurn,
   getStack, isDirectOrder, legalAttacks, legalMerges, legalMoves, legalSplits, mergeStacks,
-  moveStack, playCard, resolveHold, resolveRetreat, retreatOptions, splitStack, strength, terrainAt,
+  moveStack, maxBonus, playCard, resolveHold, resolveRetreat, retreatOptions, splitStack, strength, terrainAt,
 } from './engine.js';
 import { renderBoard } from './render.js';
 
@@ -15,6 +15,7 @@ const decisionPanel = $('decision');
 const decisionText = $('decision-text');
 const orderPanel = $('order');
 const orderText = $('order-text');
+const bonusEl = $('bonus');
 const endOrderButton = $('end-order');
 const statusLine = $('status');
 const handEl = $('hand');
@@ -38,6 +39,7 @@ let map;
 let config;
 let state;
 let selectedId = null;
+let bonusChoice = 0;
 // The hand stays hidden after a turn ends until the next player takes the device.
 let covered = false;
 
@@ -105,7 +107,7 @@ function drawInfo() {
       `(${stack.col},${stack.row}). Defends at ${strength(state, stack, true)}.`,
   ];
   for (const target of legalAttacks(state, stack.id)) {
-    const bonus = state.active.bonus;
+    const bonus = bonusChoice;
     lines.push(
       `Attack ${target.id}: ${strength(state, stack, false) + bonus} vs ${strength(state, target, true)} ` +
         `(defender wins ties)`,
@@ -136,11 +138,20 @@ function drawStatus() {
 function drawOrder() {
   const active = state.active;
   orderPanel.hidden = !active;
+  bonusEl.hidden = true;
   if (!active) return;
   const def = state.defs[active.card.type];
-  const left = active.kind === 'attack' && active.charges + active.used.length > 1
-    ? ` (${active.charges} attacks left)` : '';
+  const max = maxBonus(state);
+  bonusChoice = Math.min(bonusChoice, max);
+  const left = active.extraCost ? ` (${active.points} offensive points left)` : '';
   orderText.textContent = `${def.name}${left}: ${INSTRUCTIONS[active.kind]}`;
+  if (active.kind === 'attack' && max > 0 && !state.pending) {
+    bonusEl.hidden = false;
+    bonusEl.innerHTML = 'Spend on this attack: ' + Array.from({ length: max + 1 }, (_, n) =>
+      `<button data-bonus="${n}" class="${n === bonusChoice ? 'on' : ''}">+${n}</button>`).join('') +
+      (active.used.length === 0 && active.points >= active.extraCost
+        ? ` <small>(${active.extraCost} points buy an extra attack)</small>` : '');
+  }
   endOrderButton.textContent = active.used.length ? 'Finish order' : 'Cancel order';
   endOrderButton.disabled = Boolean(state.pending);
 }
@@ -211,6 +222,7 @@ function attempt(action) {
     state = { ...state, log: [...state.log, `Not allowed: ${error.message}`] };
   }
   selectedId = null;
+  bonusChoice = 0;
   draw();
 }
 
@@ -233,7 +245,7 @@ svg.addEventListener('click', (event) => {
   if (stackEl) {
     const id = stackEl.dataset.stack;
     const t = targetsFor(selectedId);
-    if (t.enemies.some((s) => s.id === id)) return attempt(() => attack(state, selectedId, id));
+    if (t.enemies.some((s) => s.id === id)) return attempt(() => attack(state, selectedId, id, bonusChoice));
     if (t.friends.some((s) => s.id === id)) return attempt(() => mergeStacks(state, selectedId, id));
     const canUse = eligibleStacks(state).some((s) => s.id === id);
     if (canUse && isDirectOrder(state)) return attempt(() => applyToStack(state, id));
@@ -261,6 +273,12 @@ handEl.addEventListener('click', (event) => {
   else if (discard && !discard.disabled) attempt(() => discardCard(state, discard.dataset.discard));
 });
 
+bonusEl.addEventListener('click', (event) => {
+  const button = event.target.closest('[data-bonus]');
+  if (!button) return;
+  bonusChoice = Number(button.dataset.bonus);
+  draw();
+});
 $('hold').addEventListener('click', () => attempt(() => resolveHold(state)));
 endOrderButton.addEventListener('click', () => attempt(() => endOrder(state)));
 endTurnButton.addEventListener('click', () => {
