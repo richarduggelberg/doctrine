@@ -630,7 +630,7 @@ test('the map starts with trench chips on the front and deeper ones on the capit
   for (const cap of Object.values(state.capitals)) assert.equal(state.defense[`${cap.col},${cap.row}`], 2);
 });
 
-test('the map is the Western Front: sea along the Channel coast, Paris and the Ruhr as capitals', () => {
+test('the map is the Western Front: sea along the Channel coast, Paris and Cologne as capitals', () => {
   const state = createGame(map, config);
   assert.equal(state.terrain['0,0'], 'sea');
   assert.ok(!inBounds(state, 0, 0), 'sea hexes cannot be entered');
@@ -651,7 +651,7 @@ test('the five countries: France and Germany belong to the players, the rest is 
       assert.equal(territoryOf(state, col, row), state.owners[country] ?? null);
     }
   }
-  for (const [name, code] of [['Brussels', 'E'], ['Amsterdam', 'N'], ['Luxembourg', 'L'], ['Metz', 'G'], ['Paris', 'F']]) {
+  for (const [name, code] of [['Brussels', 'E'], ['Cologne', 'G'], ['Luxembourg', 'L'], ['Metz', 'G'], ['Paris', 'F']]) {
     const place = state.scenery.places.find((p) => p.name === name);
     assert.equal(countryAt(state, place.col, place.row), code, name);
   }

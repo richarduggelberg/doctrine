@@ -29,8 +29,6 @@ const endOrderButton = $('end-order');
 const statusLine = $('status');
 const handEl = $('hand');
 const handTitle = $('hand-title');
-const coverPanel = $('cover');
-const coverText = $('cover-text');
 const overPanel = $('over');
 
 const INSTRUCTIONS = {
@@ -59,8 +57,6 @@ let selectedId = null;
 let bonusChoice = 0;
 // First card of a pair being assembled from the hand.
 let pairUid = null;
-// The hand stays hidden after a turn ends until the next player takes the device.
-let covered = false;
 
 async function start() {
   [map, config] = await Promise.all([
@@ -81,7 +77,6 @@ function newGame() {
   for (const p of ['A', 'B']) setup.doctrine[p].public = $(`declare-${p}`).checked;
   state = createGame(map, setup, Math.floor(Math.random() * 2 ** 31));
   resetPicks();
-  covered = false;
   draw();
 }
 
@@ -96,7 +91,7 @@ function targetsFor(id) {
 
 function enemyZone() {
   const zone = new Set();
-  if (!$('show-zoc').checked || covered || state.over) return zone;
+  if (!$('show-zoc').checked || state.over) return zone;
   for (let row = 0; row < state.rows; row++) {
     for (let col = 0; col < state.cols; col++) {
       if (inEnemyZoc(state, state.current, col, row)) zone.add(`${col},${row}`);
@@ -108,7 +103,7 @@ function enemyZone() {
 function draw() {
   const pending = state.pending;
   const t = targetsFor(selectedId);
-  const mover = !state.active && !pending && !state.over && !covered;
+  const mover = !state.active && !pending && !state.over;
   renderBoard(svg, state, {
     selectedId,
     targets: pending ? retreatOptions(state) : t.hexes,
@@ -121,7 +116,7 @@ function draw() {
   });
   turnLabel.textContent = `Turn ${state.turn} - Player ${state.current}`;
   turnLabel.className = `owner-${state.current}`;
-  endTurnButton.disabled = Boolean(pending) || Boolean(state.over) || covered;
+  endTurnButton.disabled = Boolean(pending) || Boolean(state.over);
   drawInfo();
   drawStatus();
   drawOrder();
@@ -162,8 +157,7 @@ function doctrineText(owner) {
 
 function drawStatus() {
   const other = state.current === 'A' ? 'B' : 'A';
-  const own = covered && !state.over && !state.doctrine[state.current].public
-    ? 'hidden' : doctrineText(state.current);
+  const own = doctrineText(state.current);
   const theirs = state.doctrine[other].public ? doctrineText(other) : 'secret';
   statusLine.textContent =
     `Doctrine ${state.current}: ${own} | Doctrine ${other}: ${theirs} | Plays left: ${state.cardsPerTurn - state.played} | ` +
@@ -236,13 +230,6 @@ function drawOver() {
 
 function drawHand() {
   const hand = state.hands[state.current];
-  coverPanel.hidden = !covered || Boolean(state.over);
-  if (covered && !state.over) {
-    handTitle.textContent = '';
-    coverText.textContent = `Pass the device to Player ${state.current}.`;
-    handEl.innerHTML = '';
-    return;
-  }
   handTitle.textContent = pairUid
     ? `Player ${state.current}'s hand - pick a second ${state.orders[hand.find((c) => c.uid === pairUid)?.suit]?.name ?? ''} card to pair (or click the first again to cancel)`
     : `Player ${state.current}'s hand`;
@@ -359,15 +346,7 @@ modesEl.addEventListener('click', (event) => {
 $('show-zoc').addEventListener('change', draw);
 $('hold').addEventListener('click', () => attempt(() => resolveHold(state)));
 endOrderButton.addEventListener('click', () => attempt(() => endOrder(state)));
-endTurnButton.addEventListener('click', () => {
-  attempt(() => endTurn(state));
-  covered = !state.over;
-  draw();
-});
-$('reveal').addEventListener('click', () => {
-  covered = false;
-  draw();
-});
+endTurnButton.addEventListener('click', () => attempt(() => endTurn(state)));
 $('over-new').addEventListener('click', newGame);
 $('new-game').addEventListener('click', newGame);
 

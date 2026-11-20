@@ -8,11 +8,14 @@ import { distance } from '../js/hex.js';
 const COLS = 25;
 const ROWS = 26;
 const HEX_KM = 20; // distance between neighbouring hex centres
-const LON0 = 1.0; // centre of hex (0,0)
-const LAT0 = 52.4;
 const KM_PER_LAT = 111;
 const KM_PER_LON = 70.9; // at about 50.4 N
 const ROW_KM = (HEX_KM * Math.sqrt(3)) / 2;
+// Hex (0,0) is the map's north-west corner: the old frame (52.4 N, 1.0 E) with its top three rows cut off.
+// Three rows is an odd number, so the row parity flips and the origin also moves half a hex east.
+const CUT_ROWS = 3;
+const LON0 = 1.0 + (HEX_KM * 0.5 * (CUT_ROWS & 1)) / KM_PER_LON;
+const LAT0 = 52.4 - (ROW_KM * CUT_ROWS) / KM_PER_LAT;
 
 const lonLat = (col, row) => ({
   lon: LON0 + (HEX_KM * (col + 0.5 * (row & 1))) / KM_PER_LON,
@@ -105,9 +108,12 @@ const OWNERS = { F: 'A', G: 'B' }; // France is Player A, Germany Player B; the 
 // ---------------------------------------------------------------- terrain areas (first match wins, top down)
 const MOUNTAINS = [
   [[6.95, 48.4], [7.2, 48.4], [7.35, 48.6], [7.3, 48.8], [7.1, 48.7], [7.0, 48.55]], // Vosges crest
+  [[6.9, 48.4], [7.05, 48.4], [7.2, 47.9], [7.05, 47.7], [6.9, 47.8], [6.95, 48.1]], // High Vosges (Hohneck, Grand Ballon)
 ];
 const HILLS = [
   [[6.5, 48.3], [6.8, 48.7], [7.0, 48.9], [7.5, 49.0], [7.45, 48.6], [7.4, 48.3]], // Vosges foothills
+  [[6.5, 48.3], [6.85, 48.4], [6.9, 47.8], [6.6, 47.7], [6.4, 48.0]], // western Vosges slope
+  [[4.9, 48.0], [5.5, 48.2], [5.4, 47.8], [5.0, 47.7]], // Plateau de Langres
   [[6.1, 50.6], [6.9, 50.65], [7.3, 50.35], [7.2, 49.9], [6.6, 49.8], [6.2, 49.95], [6.1, 50.3]], // Eifel and Hohes Venn
   [[7.1, 49.75], [8.1, 49.75], [8.1, 50.1], [7.4, 50.05]], // Hunsruck
   [[3.2, 49.36], [3.2, 49.43], [3.9, 49.52], [3.9, 49.43]], // Chemin des Dames
@@ -147,14 +153,14 @@ const MARSHES = [
 
 // ---------------------------------------------------------------- rivers (a hex they run through gets the modifier)
 const RIVERS = [
-  { name: 'Rhine', big: true, line: [[7.75, 48.4], [7.8, 48.6], [8.1, 48.8]] },
+  { name: 'Rhine', big: true, line: [[7.59, 47.56], [7.6, 48.0], [7.75, 48.4], [7.8, 48.6], [8.1, 48.8]] },
   { name: 'Rhine', big: true, line: [[7.6, 50.36], [7.1, 50.73], [6.96, 50.94], [6.77, 51.23], [6.75, 51.45], [6.62, 51.65], [6.2, 51.83], [5.85, 51.85], [5.43, 51.88], [4.98, 51.83], [4.48, 51.92], [4.1, 51.98]] },
-  { name: 'Meuse', line: [[5.68, 48.4], [5.55, 48.75], [5.54, 48.89], [5.38, 49.16], [5.19, 49.49], [4.94, 49.7], [4.72, 49.77], [4.83, 50.14], [4.91, 50.26], [4.87, 50.45]] },
+  { name: 'Meuse', line: [[5.5, 47.95], [5.68, 48.4], [5.55, 48.75], [5.54, 48.89], [5.38, 49.16], [5.19, 49.49], [4.94, 49.7], [4.72, 49.77], [4.83, 50.14], [4.91, 50.26], [4.87, 50.45]] },
   { name: 'Meuse', big: true, line: [[4.87, 50.45], [5.23, 50.52], [5.57, 50.63], [5.69, 50.85], [5.99, 51.19], [6.17, 51.37], [6.1, 51.55], [5.97, 51.72], [5.74, 51.76], [5.3, 51.72], [5.13, 51.73], [4.98, 51.83]] },
-  { name: 'Moselle', line: [[6.3, 48.4], [6.1, 48.45], [5.95, 48.6], [5.89, 48.67], [5.95, 48.8], [6.05, 48.9], [6.15, 49.1], [6.17, 49.36], [6.37, 49.47], [6.64, 49.75], [7.07, 49.92], [7.35, 50.15], [7.6, 50.36]] },
+  { name: 'Moselle', line: [[6.9, 47.9], [6.6, 48.0], [6.45, 48.18], [6.3, 48.4], [6.1, 48.45], [5.95, 48.6], [5.89, 48.67], [5.95, 48.8], [6.05, 48.9], [6.15, 49.1], [6.17, 49.36], [6.37, 49.47], [6.64, 49.75], [7.07, 49.92], [7.35, 50.15], [7.6, 50.36]] },
   { name: 'Saar', line: [[7.1, 49.1], [6.95, 49.23], [6.75, 49.4], [6.55, 49.55], [6.55, 49.7]] },
-  { name: 'Seine', line: [[2.95, 48.4], [2.66, 48.54], [2.48, 48.6], [2.35, 48.8], [2.15, 48.95], [2.05, 48.93], [1.7, 49.0], [1.48, 49.09], [1.4, 49.24], [1.0, 49.4]] },
-  { name: 'Marne', line: [[4.95, 48.64], [4.58, 48.72], [4.36, 48.95], [3.95, 49.04], [3.4, 49.04], [2.88, 48.96], [2.6, 48.87], [2.42, 48.82]] },
+  { name: 'Seine', line: [[4.08, 48.3], [3.5, 48.4], [2.95, 48.4], [2.66, 48.54], [2.48, 48.6], [2.35, 48.8], [2.15, 48.95], [2.05, 48.93], [1.7, 49.0], [1.48, 49.09], [1.4, 49.24], [1.0, 49.4]] },
+  { name: 'Marne', line: [[5.2, 48.0], [5.14, 48.11], [4.95, 48.64], [4.58, 48.72], [4.36, 48.95], [3.95, 49.04], [3.4, 49.04], [2.88, 48.96], [2.6, 48.87], [2.42, 48.82]] },
   { name: 'Aisne', line: [[5.0, 49.15], [4.7, 49.4], [4.37, 49.5], [3.9, 49.43], [3.6, 49.4], [3.32, 49.38], [3.0, 49.4], [2.83, 49.42]] },
   { name: 'Oise', line: [[4.1, 49.95], [3.63, 49.9], [3.4, 49.75], [3.3, 49.65], [3.0, 49.58], [2.83, 49.42], [2.5, 49.25], [2.2, 49.07], [2.1, 49.0]] },
   { name: 'Somme', line: [[3.3, 49.85], [2.93, 49.93], [2.6, 49.92], [2.3, 49.9], [1.85, 50.1], [1.6, 50.2]] },
@@ -172,7 +178,7 @@ const RIVERS = [
 // ---------------------------------------------------------------- cities: [name, lon, lat, modifiers]
 const PLACES = [
   ['Paris', 2.35, 48.85, ['bigcity']], ['Cologne', 6.96, 50.94, ['bigcity']], ['Essen', 7.01, 51.46, ['bigcity']],
-  ['Brussels', 4.35, 50.85, ['bigcity']], ['Amsterdam', 4.9, 52.37, ['bigcity']],
+  ['Brussels', 4.35, 50.85, ['bigcity']],
   ['Antwerp', 4.4, 51.22, ['fortress', 'city']], ['Liege', 5.57, 50.63, ['fortress']], ['Namur', 4.87, 50.47, ['fortress']],
   ['Maubeuge', 3.97, 50.28, ['fortress']], ['Verdun', 5.38, 49.16, ['fortress']], ['Metz', 6.17, 49.12, ['fortress']],
   ['Thionville', 6.17, 49.36, ['fortress']], ['Toul', 5.89, 48.67, ['fortress']], ['Strasbourg', 7.75, 48.58, ['fortress']],
@@ -181,8 +187,9 @@ const PLACES = [
   ['Nancy', 6.18, 48.69, ['city']], ['Aachen', 6.08, 50.78, ['city']], ['Dunkirk', 2.37, 51.04, ['city']],
   ['Charleroi', 4.44, 50.41, ['city']], ['Ghent', 3.72, 51.05, ['city']], ['Mons', 3.95, 50.45, ['city']],
   ['Cambrai', 3.24, 50.17, ['city']], ['Ypres', 2.88, 50.85, []], ['Noyon', 2.99, 49.58, []],
+  ['Epinal', 6.45, 48.18, ['fortress']], ['Troyes', 4.08, 48.3, ['city']], ['Colmar', 7.36, 48.08, ['city']],
 ];
-const CAPITALS = { A: 'Paris', B: 'Essen' };
+const CAPITALS = { A: 'Paris', B: 'Cologne' };
 
 // ================================================================ build
 const key = (col, row) => `${col},${row}`;
@@ -291,6 +298,7 @@ const cityOf = {};
 const places = [];
 for (const [name, lon, lat, mods] of PLACES) {
   const h = nearestHex(lon, lat);
+  if (h.d > HEX_KM) continue; // off the map
   const k = key(h.col, h.row);
   if (sea.has(k)) continue;
   cityOf[k] = [...new Set([...(cityOf[k] ?? []), ...mods])];
@@ -332,7 +340,7 @@ const capitals = Object.fromEntries(
 const MEN_PER_CHIP = 30000;
 const MAX_STACK = 5;
 const ARMIES = [
-  { owner: 'A', army: 'French 1st Army', chips: 8, at: [6.55, 48.4] }, // Epinal, the Vosges
+  { owner: 'A', army: 'French 1st Army', chips: 8, at: [6.45, 48.25] }, // Epinal, the Vosges
   { owner: 'A', army: 'French 2nd Army', chips: 7, at: [6.2, 48.8] }, // Nancy
   { owner: 'A', army: 'French 3rd Army', chips: 5, at: [5.45, 49.2] }, // Verdun
   { owner: 'A', army: 'French 4th Army', chips: 6, at: [4.95, 49.55] }, // Sedan, Stenay
