@@ -240,11 +240,12 @@ test('a stack walks 2 hexes per turn; entering an enemy zone is free but ends th
 
 test('a stack inside an enemy zone can only step out of it; the walk is still 2 hexes', () => {
   let state = duel(3, 3); // A1 (1,2) touches B1 (2,2)
-  const open = legalMoves(state, 'A1').map((h) => `${h.col},${h.row}`);
-  assert.ok(open.includes('0,2'));
-  assert.ok(!open.includes('1,1') && !open.includes('1,3'), 'hexes next to the enemy are in its zone');
+  const first = legalMoves(state, 'A1').filter((h) => h.dist === 1).map((h) => `${h.col},${h.row}`);
+  assert.ok(first.includes('0,2'));
+  assert.ok(!first.includes('1,1') && !first.includes('1,3'), 'hexes next to the enemy are in its zone');
   state = moveStack(state, 'A1', 0, 2);
   assert.ok(legalMoves(state, 'A1').length > 0, 'a second hex');
+  assert.ok(legalMoves(state, 'A1').every((h) => h.dist === 1), 'one hex of the walk is left');
   const [second] = legalMoves(state, 'A1');
   state = moveStack(state, 'A1', second.col, second.row);
   assert.deepEqual(legalMoves(state, 'A1'), []);
@@ -252,15 +253,29 @@ test('a stack inside an enemy zone can only step out of it; the walk is still 2 
   assert.equal(legalMoves(moveStack(duel(3, 3), 'A1', 0, 2), 'B1').length, 0, 'only the current player moves');
 });
 
+test('one move can cover the whole walk: every hex within reach is a destination', () => {
+  let state = gapDuel(3, 3); // A1 (1,2), B1 (4,2)
+  const reach = legalMoves(state, 'A1');
+  assert.ok(reach.some((h) => h.dist === 2), 'two-hex destinations are listed');
+  assert.ok(reach.every((h) => h.dist <= 2));
+  const far = reach.find((h) => h.dist === 2 && !(h.col === 3 && h.row === 2));
+  state = moveStack(state, 'A1', far.col, far.row);
+  assert.equal(state.stacks[0].moved, 2);
+  assert.deepEqual(legalMoves(state, 'A1'), [], 'the whole walk was used in one move');
+  // A zone hex only ever ends a walk.
+  const zoneHex = legalMoves(gapDuel(3, 3), 'A1').find((h) => h.col === 3 && h.row === 2);
+  assert.equal(zoneHex?.dist, 2);
+  assert.equal(moveStack(gapDuel(3, 3), 'A1', 3, 2).stacks[0].halted, true);
+});
+
 test('Rail adds hexes to a stack\'s walk', () => {
   let state = applyToStack(chooseMode(play(duel(3, 3), 'D', 2), 'rail'), 'A1');
   assert.equal(state.stacks[0].rail, 2);
-  const farFrom = (h) => distance(h, { col: 2, row: 2 });
-  for (let i = 0; i < 4; i++) {
-    const [hex] = legalMoves(state, 'A1').sort((a, b) => farFrom(b) - farFrom(a));
-    state = moveStack(state, 'A1', hex.col, hex.row);
-  }
-  assert.deepEqual(legalMoves(state, 'A1'), [], '2 hexes of walking + 2 of rail');
+  const farthest = Math.max(...legalMoves(state, 'A1').map((h) => h.dist));
+  assert.equal(farthest, 4, '2 hexes of walking + 2 of rail');
+  const hex = legalMoves(state, 'A1').find((h) => h.dist === 4);
+  state = moveStack(state, 'A1', hex.col, hex.row);
+  assert.deepEqual(legalMoves(state, 'A1'), []);
 });
 
 test('only two cards can be played per turn', () => {

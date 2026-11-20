@@ -505,25 +505,48 @@ export function needsTarget(mode) {
   return TARGETED.has(mode);
 }
 
-// Free movement: a stack walks up to `move` hexes (plus rail) per turn into empty hexes. Entering an enemy zone
-// is free but ends the walk; a stack already in an enemy zone can only step out of it. A stack that fought cannot walk.
+// Free movement: a stack walks up to `move` hexes (plus rail) per turn through empty hexes, and every hex it can
+// reach in one go is a legal destination (`dist` steps away). Entering an enemy zone is free but ends the walk,
+// so a zone hex is only ever the last step; a stack already in an enemy zone must first step out into a free hex.
+// A stack that fought cannot walk.
+function walkReach(state, stack) {
+  const reach = new Map();
+  const budget = state.move + stack.rail - stack.moved;
+  let frontier = [{ col: stack.col, row: stack.row }];
+  for (let dist = 1; dist <= budget && frontier.length; dist++) {
+    const next = [];
+    for (const from of frontier) {
+      const steps = neighbors(from.col, from.row).filter(
+        (n) => inBounds(state, n.col, n.row) && !stackAt(state, n.col, n.row) && !reach.has(key(n.col, n.row)),
+      );
+      for (const n of steps) {
+        const zone = inEnemyZoc(state, stack.owner, n.col, n.row);
+        if (dist === 1 && inEnemyZoc(state, stack.owner, stack.col, stack.row) && zone) continue;
+        reach.set(key(n.col, n.row), { col: n.col, row: n.row, dist });
+        if (!zone) next.push(n);
+      }
+    }
+    frontier = next;
+  }
+  return reach;
+}
+
 export function legalMoves(state, id) {
   const stack = getStack(state, id);
   if (!stack || stack.owner !== state.current || state.pending || state.over || !canStep(state, stack) || isCutOff(state, stack)) return [];
-  return inEnemyZoc(state, stack.owner, stack.col, stack.row) ? freeNeighbors(state, stack) : emptyNeighbors(state, stack);
+  return [...walkReach(state, stack).values()];
 }
 
 export function moveStack(state, id, col, row) {
-  if (!legalMoves(state, id).some((m) => m.col === col && m.row === row)) {
-    throw new Error(`Illegal move for ${id} to ${col},${row}`);
-  }
+  const move = legalMoves(state, id).find((m) => m.col === col && m.row === row);
+  if (!move) throw new Error(`Illegal move for ${id} to ${col},${row}`);
   const next = structuredClone(state);
   const stack = getStack(next, id);
-  next.log.push(`${id} moved (${stack.col},${stack.row}) -> (${col},${row})`);
+  next.log.push(`${id} moved (${stack.col},${stack.row}) -> (${col},${row})${move.dist > 1 ? ` (${move.dist} hexes)` : ''}`);
   stack.col = col;
   stack.row = row;
   stack.braced = 0;
-  stack.moved += 1;
+  stack.moved += move.dist;
   if (inEnemyZoc(next, stack.owner, col, row)) stack.halted = true;
   return next;
 }

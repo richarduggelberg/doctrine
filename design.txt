@@ -812,7 +812,10 @@ M10 - PLAYING CARDS, TIERS, LONGER WALKS (supersedes M3 deck, M9 items 2, 3, 7)
      more). Entering an enemy zone of control is free but ends the walk; a
      stack that starts inside a zone can only step out of it to a hex outside
      every zone. A stack that fought cannot walk. Contact on turn 1 is
-     therefore possible.
+     therefore possible. The whole walk is one move: selecting a stack
+     highlights every hex within reach (up to 2 hexes, 2 + rail with rail)
+     and one click on any of them moves the stack there; a zone hex is only
+     ever the last step of a path.
   8. DEFENDERS: a defender who holds gains no gear/experience; only an
      attacker with the upper hand gains a gear chip.
   9. SURRENDER: the surrender cards are gone with the jokers. Instead, at the
