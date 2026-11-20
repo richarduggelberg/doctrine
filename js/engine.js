@@ -457,7 +457,7 @@ function poolOptions(state, mode, stack) {
     case 'trench': return (state.defense[key(stack.col, stack.row)] ?? 0) < values.limit ? [stack] : [];
     case 'brace': return stack.braced < values.braceAmount ? [stack] : [];
     case 'rail': return stack.fought ? [] : [stack];
-    case 'rally': return stack.gear < values.limit ? [stack] : [];
+    case 'rally': return stack.gear < Math.min(values.limit, stack.men) ? [stack] : [];
     case 'merge': return adjacentStacks(state, stack, true);
     case 'split': return stack.men >= 2 ? freeNeighbors(state, stack) : [];
     case 'recruit': return territoryOf(state, stack.col, stack.row) === stack.owner ? [stack] : [];
@@ -570,6 +570,8 @@ export function maxBonus(state) {
 function loseMen(state, stack, count) {
   const lost = Math.min(count, stack.men);
   stack.men -= lost;
+  // Experience cannot exceed the men who carry it.
+  stack.gear = Math.min(stack.gear, stack.men);
   state.casualties[stack.owner] += lost;
   return lost;
 }
@@ -604,7 +606,7 @@ export function attack(state, attackerId, defenderId, bonus = 0) {
   const defenderLoss = loseMen(next, defender, 1 + bonus + (breakthrough ? 1 : 0));
   // Experience comes from attacking: a defender who holds gains nothing.
   if (verdict === 'attacker') {
-    attacker.gear += 1;
+    attacker.gear = Math.min(attacker.gear + 1, attacker.men);
     next.battlesLost[defender.owner] += 1;
   } else if (verdict === 'defender') {
     next.battlesLost[attacker.owner] += 1;
@@ -751,7 +753,7 @@ export function splitStack(state, id, col, row) {
   const next = structuredClone(state);
   const stack = getStack(next, id);
   const sent = Math.floor(stack.men / 2);
-  const gearSent = Math.min(stack.gear, next.active.values.gear ?? 0);
+  const gearSent = Math.floor(stack.gear / 2);
   stack.men -= sent;
   stack.gear -= gearSent;
   const newId = `${stack.owner}${++next.idCounters[stack.owner]}`;

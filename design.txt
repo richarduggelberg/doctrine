@@ -787,7 +787,8 @@ M10 - PLAYING CARDS, TIERS, LONGER WALKS (supersedes M3 deck, M9 items 2, 3, 7)
      Ace = 4. Doctrine shifts the tier by level 0/1/2/3 = -2/-1/0/+1, so a
      level 3 doctrine lifts an 8-10 to the tier of a face card and a face card
      above it. Tiers never go below 0. Per-tier tables in data/cards.json give
-     the points (and trench/rally limit, gear carried by a split).
+     the points (and trench/rally limit). A split halves both men and gear:
+     the new stack takes the lower half (men and gear), the old keeps the rest.
   4. PAIRS: two number cards (2-10) of one suit may be played together as one
      order that uses BOTH of the turn's plays. Tier = tier of the summed ranks
      (capped at 3) + 1, then the doctrine shift. A 2 and a 3 (sum 5) beat
@@ -817,7 +818,9 @@ M10 - PLAYING CARDS, TIERS, LONGER WALKS (supersedes M3 deck, M9 items 2, 3, 7)
      and one click on any of them moves the stack there; a zone hex is only
      ever the last step of a path.
   8. DEFENDERS: a defender who holds gains no gear/experience; only an
-     attacker with the upper hand gains a gear chip.
+     attacker with the upper hand gains a gear chip. A stack can never have
+     more gear than men: gain and rally stop at that cap, and gear that no
+     longer fits is lost along with the men.
   9. SURRENDER: the surrender cards are gone with the jokers. Instead, at the
      end of each player's own turn the nation breaks if its break score has
      reached its hidden threshold (40-56, +2 per willingness level).

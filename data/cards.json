@@ -58,7 +58,6 @@
       "kind": "logistics",
       "points": [1, 2, 2, 3, 4, 4],
       "limit": [1, 2, 3, 3, 3, 3],
-      "gear": [0, 0, 0, 1, 1, 1],
       "railHexes": 2,
       "menu": { "rail": 1, "rally": 2, "merge": 1, "split": 1 },
       "text": "{points} points: rail +{railHexes} hexes of movement (1), rally +1 gear up to {limit} (2), merge adjacent stacks (1), split a stack (1).",

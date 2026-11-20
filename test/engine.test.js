@@ -334,6 +334,27 @@ test('with the upper hand the attacker gains gear; the defender loses a man and 
   assert.equal(state.casualties.A + state.casualties.B, 3);
 });
 
+test('experience never exceeds men: it is capped when gained and shed when men are lost', () => {
+  // Attacker with 1 man left after attrition: 2 men, attrition costs 1 -> gear capped at 1 man.
+  const won = fight(2, 1);
+  assert.equal(won.stacks[0].men, 1);
+  assert.ok(won.stacks[0].gear <= won.stacks[0].men);
+
+  // Losing men sheds the experience that no longer fits.
+  const geared = bare(duel(4, 3));
+  geared.stacks[0].gear = 4;
+  const after = attack(geared, 'A1', 'B1').stacks.find((s) => s.id === 'A1');
+  assert.equal(after.men, 3);
+  assert.equal(after.gear, 3);
+
+  // Rally cannot lift gear above men.
+  const full = duel(2, 2);
+  full.stacks[0].gear = 2;
+  assert.throws(() => applyToStack(chooseMode(play(full, 'D', 5), 'rally'), 'A1'));
+  full.stacks[0].gear = 1;
+  assert.equal(applyToStack(chooseMode(play(full, 'D', 5), 'rally'), 'A1').stacks[0].gear, 2);
+});
+
 test('a retreat costs gear before men', () => {
   const geared = bare(duel(5, 3));
   geared.stacks[1].gear = 1;
@@ -473,12 +494,12 @@ test('Logistics: merge and split cost 1 point each, rally 2; level sets the pool
   assert.equal(stackAt(split, hex.col, hex.row).gear, 0);
   assert.deepEqual(legalMoves(split, 'A3'), [], 'the new stack used its walk arriving');
 
-  // At a high tier a split can take one gear chip along.
-  const geared = setDoctrine(base, 'A', { reorganizational: 3 });
-  geared.stacks[0].gear = 2;
-  const sent = splitStack(chooseMode(play(geared, 'D', 8), 'split'), 'A1', hex.col, hex.row);
+  // Experience is split evenly too: the new stack gets the lower half.
+  const geared = structuredClone(base);
+  geared.stacks[0].gear = 3;
+  const sent = splitStack(chooseMode(play(geared, 'D', 5), 'split'), 'A1', hex.col, hex.row);
   assert.equal(stackAt(sent, hex.col, hex.row).gear, 1);
-  assert.equal(sent.stacks.find((s) => s.id === 'A1').gear, 1);
+  assert.equal(sent.stacks.find((s) => s.id === 'A1').gear, 2);
 
   const rallied = applyToStack(chooseMode(play(base, 'D', 5), 'rally'), 'A1');
   assert.equal(rallied.stacks[0].gear, 1);
