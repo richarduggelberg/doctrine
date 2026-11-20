@@ -5,7 +5,7 @@ import { distance, key, neighbors } from './hex.js';
 export const PLAYERS = ['A', 'B'];
 export const TERRAIN_BONUS = { open: 0, rough: 1, fortified: 2 };
 export const MIN_ATTACKER_MEN = 2;
-export const HOLD_LOSS = 2;
+export const HOLD_LOSS = 1; // on top of the attrition man: standing costs 2 men in total
 
 // Orders that apply immediately when played; all others need a stack target.
 const IMMEDIATE = new Set(['posture', 'propaganda']);
@@ -389,52 +389,66 @@ export function attack(state, attackerId, defenderId, bonus = 0) {
   a.charges = a.extraCost && a.points >= a.extraCost ? 2 : 1;
   const attackStrength = strength(next, attacker, false) + bonus;
   const defenseStrength = strength(next, defender, true);
-  const attackerWins = attackStrength > defenseStrength; // ties go to the defender
-  const winner = attackerWins ? attacker : defender;
-  const loser = attackerWins ? defender : attacker;
+  const verdict =
+    attackStrength > defenseStrength ? 'attacker' : attackStrength < defenseStrength ? 'defender' : 'stalemate';
 
+  // Attrition: every battle costs each side 1 man, whoever wins.
   attacker.braced = 0;
   loseMen(next, attacker, 1);
-  winner.gear += 1;
-  next.battlesLost[loser.owner] += 1;
-  next.pending = {
+  loseMen(next, defender, 1);
+  if (verdict === 'attacker') {
+    attacker.gear += 1;
+    next.battlesLost[defender.owner] += 1;
+  } else if (verdict === 'defender') {
+    defender.gear += 1;
+    next.battlesLost[attacker.owner] += 1;
+  }
+  const battle = {
     attackerId,
     defenderId,
-    winnerId: winner.id,
-    loserId: loser.id,
+    winnerId: verdict === 'attacker' ? attackerId : null,
+    loserId: defenderId,
     defenderCol: defender.col,
     defenderRow: defender.row,
   };
+  const outcome = {
+    attacker: `${attackerId} has the upper hand`,
+    defender: `${defenderId} repels the attack`,
+    stalemate: 'stalemate',
+  }[verdict];
   next.log.push(
-    `${attackerId} (${attackStrength}${bonus ? `, incl. +${bonus}` : ''}) attacks ${defenderId} (${defenseStrength}): ${winner.id} wins. ` +
-      `${loser.id} must hold or retreat.`,
+    `${attackerId} (${attackStrength}${bonus ? `, incl. +${bonus}` : ''}) attacks ${defenderId} (${defenseStrength}): ` +
+      `${outcome}; each side loses 1 man.`,
   );
+  // Only an attacker with the upper hand forces the surviving defender to choose.
+  if (verdict === 'attacker' && defender.men > 0) next.pending = battle;
+  else finishBattle(next, battle);
   consume(next, attackerId);
   return next;
 }
 
+// A retreat costs 1 gear, or 1 man if the stack has none, so it needs a chip to spare.
 export function retreatOptions(state) {
   const pending = state.pending;
   if (!pending) return [];
   const loser = getStack(state, pending.loserId);
-  const winner = getStack(state, pending.winnerId);
-  if (loser.men < 2) return []; // a retreat costs a man, which would destroy it
+  const winner = getStack(state, pending.attackerId);
+  if (loser.gear === 0 && loser.men < 2) return [];
   return emptyNeighbors(state, loser).filter((n) => distance(n, winner) > 1);
 }
 
-function finishBattle(next) {
-  const pending = next.pending;
+function finishBattle(next, battle) {
   next.stacks = next.stacks.filter((s) => s.men > 0);
   next.pending = null;
-  // A winning attacker takes the hex if the defender left it or was destroyed.
-  const attacker = getStack(next, pending.attackerId);
+  // An attacker with the upper hand takes the hex if the defender left it or was destroyed.
+  const attacker = getStack(next, battle.attackerId);
   if (
     attacker &&
-    pending.winnerId === pending.attackerId &&
-    !stackAt(next, pending.defenderCol, pending.defenderRow)
+    battle.winnerId === battle.attackerId &&
+    !stackAt(next, battle.defenderCol, battle.defenderRow)
   ) {
-    attacker.col = pending.defenderCol;
-    attacker.row = pending.defenderRow;
+    attacker.col = battle.defenderCol;
+    attacker.row = battle.defenderRow;
     next.log.push(`${attacker.id} advances to (${attacker.col},${attacker.row})`);
   }
   // A nation with no stacks left cannot fight on.
@@ -452,8 +466,8 @@ export function resolveHold(state) {
   const next = structuredClone(state);
   const loser = getStack(next, pending.loserId);
   const lost = loseMen(next, loser, HOLD_LOSS);
-  next.log.push(`${loser.id} holds and loses ${lost} men${loser.men === 0 ? ' (destroyed)' : ''}`);
-  finishBattle(next);
+  next.log.push(`${loser.id} stands and loses ${lost} more man${loser.men === 0 ? ' (destroyed)' : ''}`);
+  finishBattle(next, pending);
   return next;
 }
 
@@ -464,14 +478,14 @@ export function resolveRetreat(state, col, row) {
   }
   const next = structuredClone(state);
   const loser = getStack(next, pending.loserId);
-  loseMen(next, loser, 1);
-  const gearLost = Math.min(1, loser.gear);
-  loser.gear -= gearLost;
+  const cost = loser.gear > 0 ? '1 gear' : '1 man';
+  if (loser.gear > 0) loser.gear -= 1;
+  else loseMen(next, loser, 1);
   loser.col = col;
   loser.row = row;
   loser.braced = 0;
-  next.log.push(`${loser.id} retreats to (${col},${row}), losing 1 man${gearLost ? ' and 1 gear' : ''}`);
-  finishBattle(next);
+  next.log.push(`${loser.id} retreats to (${col},${row}), losing ${cost}`);
+  finishBattle(next, pending);
   return next;
 }
 

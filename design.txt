@@ -417,10 +417,10 @@ Everything else is deferred.
     - Each stack acts at most once per turn (move 1 hex or attack 1 adjacent
       hex).
     - Strength = men + gear/exp (+ terrain + defense chips if defending).
-    - Larger wins; tie goes to defender.
-    - Loser chooses: HOLD (lose 2 men, stays) or RETREAT (lose 1 man + 1
-      gear/exp if any, moves 1 hex back; if it cannot retreat, it must hold).
-    - Attacker loses 1 man; winner gains 1 gear/exp chip.
+    - COMBAT (revised in M7, see 18.6): both sides lose 1 man (attrition).
+      Larger strength has the upper hand; a tie is a stalemate. If the
+      attacker has the upper hand the defender chooses STAND (1 more man)
+      or RETREAT (1 gear, else 1 man). Otherwise nothing more happens.
     - Lost men go to the owner's casualty pile.
     - Break score = casualty pile + 2 per battle lost + 1 per hex the player
       started with that the enemy now holds, minus Willingness card effects.
@@ -622,6 +622,35 @@ playtests disagree):
     never move or attack. Rules and map data are unchanged (only the
     rendering moved to chips), so a physical board can build the same piles
     on a plain hex mat. An empty hex with terrain shows just its chips.
+
+  M7 decisions - ATTRITION COMBAT (supersedes the combat bullets in the
+  first M2 notes above):
+  - Strength is compared first (attacker: men + gear + Offensive bonus;
+    defender: men + gear + terrain + trench chips + brace). Then BOTH sides
+    always lose 1 man (attrition, counted as casualties, so every fight
+    feeds both break scores).
+  - Attacker larger: upper hand. It gains 1 gear and the defender's player
+    gets a lost battle. The surviving defender chooses:
+      STAND  - lose 1 more man (2 in total with attrition), keep the hex.
+      RETREAT - lose 1 gear, or 1 man if it has no gear, and move to an
+               empty adjacent hex not adjacent to the attacker. Needs a
+               chip to spare (gear, or 2+ men) and a free hex; otherwise
+               it must stand. The attacker then advances into the hex.
+    If attrition destroys the defender, no choice is needed and the
+    attacker advances.
+  - Defender larger: the attack is repulsed. The attacker pays only the
+    attrition man, the defender gains 1 gear, the attacker's player gets a
+    lost battle. Nobody chooses.
+  - Tie: stalemate. Attrition only, nobody moves, no gear, no lost battle.
+    (Replaces "defender wins ties".) The attacker is never forced to choose;
+    the retreat/stand choice is always the defender's.
+  - Why: attacks now cost the defender too, so attacking bleeds the enemy's
+    will to fight (Aggressive gains purpose beyond winning fights), while
+    terrain, trenches and bracing decide who gets the upper hand.
+  - Watch in playtests: a failed attack costs the same as a tie (1 man
+    each), so attacking at bad odds is cheap; consider making a repulsed
+    attacker lose 1 extra man. Casualties accrue faster, so the 8-12
+    surrender thresholds probably need to rise.
 
 
 

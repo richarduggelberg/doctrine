@@ -163,11 +163,15 @@ test('cancelling an unused order refunds the card and the play', () => {
   assert.ok(cancelled.hands.A.some((c) => c.type === 'move'));
 });
 
-test('ties go to the defender; terrain, trenches and bracing add to defense', () => {
-  assert.equal(fight(3, 3).pending.winnerId, 'B1');
+test('terrain, trenches and bracing add to defense; a tie is a stalemate with attrition only', () => {
+  const tie = fight(3, 3);
+  assert.equal(tie.pending, null);
+  assert.deepEqual(tie.stacks.map((s) => [s.men, s.col]), [[2, 1], [2, 2]]);
+  assert.deepEqual(tie.battlesLost, { A: 0, B: 0 });
+  assert.equal(tie.casualties.A + tie.casualties.B, 2);
   const rough = duel(4, 3, { '2,2': 'rough' });
   assert.equal(strength(rough, rough.stacks[1], true), 4);
-  assert.equal(attack(play(rough, 'attack'), 'A1', 'B1').pending.winnerId, 'B1');
+  assert.equal(attack(play(rough, 'attack'), 'A1', 'B1').pending, null);
   const braced = structuredClone(duel(4, 3));
   braced.stacks[1].braced = 1;
   braced.defense['2,2'] = 2;
@@ -178,39 +182,57 @@ test('Offensive with no aggressive doctrine is only a basic attack', () => {
   assert.equal(maxBonus(play(setDoctrine(duel(3, 3), 'A', { aggressive: 0 }), 'offensive')), 0);
 });
 
-test('winning attacker loses 1 man, gains gear, and advances when the defender retreats', () => {
+test('a repulsed attacker pays only attrition, the defender gains gear and nobody has to choose', () => {
+  const state = fight(3, 5);
+  assert.equal(state.pending, null);
+  assert.equal(state.stacks.find((s) => s.id === 'A1').men, 2);
+  const defender = state.stacks.find((s) => s.id === 'B1');
+  assert.deepEqual([defender.men, defender.gear, defender.col], [4, 1, 2]);
+  assert.deepEqual(state.battlesLost, { A: 1, B: 0 });
+});
+
+test('with the upper hand the attacker gains gear; the defender loses a man and may retreat', () => {
   let state = fight(5, 3);
   assert.equal(state.pending.winnerId, 'A1');
   assert.equal(state.stacks[0].men, 4);
   assert.equal(state.stacks[0].gear, 1);
+  assert.equal(state.stacks[1].men, 2); // attrition
   const options = retreatOptions(state);
   assert.ok(options.length > 0);
   for (const o of options) assert.ok(distance(o, state.stacks[0]) > 1);
   state = resolveRetreat(state, options[0].col, options[0].row);
-  assert.equal(state.stacks.find((s) => s.id === 'B1').men, 2);
+  assert.equal(state.stacks.find((s) => s.id === 'B1').men, 1); // no gear: the retreat costs a man
   assert.deepEqual([state.stacks[0].col, state.stacks[0].row], [2, 2]);
   assert.equal(state.pending, null);
   assert.equal(state.battlesLost.B, 1);
-  assert.equal(state.casualties.A + state.casualties.B, 2);
+  assert.equal(state.casualties.A + state.casualties.B, 3);
 });
 
-test('holding costs 2 men and the defender keeps its hex; destroyed stacks vanish', () => {
+test('a retreat costs gear before men', () => {
+  const geared = play(duel(5, 3), 'attack');
+  geared.stacks[1].gear = 1;
+  const state = attack(geared, 'A1', 'B1');
+  const [hex] = retreatOptions(state);
+  const retreated = resolveRetreat(state, hex.col, hex.row).stacks.find((s) => s.id === 'B1');
+  assert.deepEqual([retreated.men, retreated.gear], [2, 0]);
+});
+
+test('standing costs 1 more man (2 in total) and keeps the hex; destroyed stacks vanish', () => {
   const held = resolveHold(fight(5, 4));
   assert.equal(held.stacks.find((s) => s.id === 'B1').men, 2);
   assert.deepEqual([held.stacks[0].col, held.stacks[0].row], [1, 2]);
   const destroyed = resolveHold(fight(6, 2));
   assert.equal(destroyed.stacks.length, 1);
   assert.deepEqual([destroyed.stacks[0].col, destroyed.stacks[0].row], [2, 2]);
+  const attrition = fight(6, 1); // attrition alone destroys a lone man, no decision needed
+  assert.equal(attrition.pending, null);
+  assert.deepEqual([attrition.stacks.length, attrition.stacks[0].col], [1, 2]);
 });
 
-test('a stack too small to survive a retreat must hold; a losing attacker never advances', () => {
-  const small = fight(5, 1);
+test('a stack with no chip to spare cannot retreat', () => {
+  const small = fight(5, 2); // 1 man, no gear left after attrition
   assert.deepEqual(retreatOptions(small), []);
   assert.throws(() => resolveRetreat(small, 3, 2));
-  const lost = fight(2, 5);
-  assert.equal(lost.pending.loserId, 'A1');
-  const done = resolveHold(lost);
-  assert.deepEqual([done.stacks[0].col, done.stacks[0].row], [2, 2]);
 });
 
 test('other actions are blocked while a battle awaits a decision', () => {
@@ -220,7 +242,7 @@ test('other actions are blocked while a battle awaits a decision', () => {
 });
 
 test('Offensive points: +1 strength each on an attack, or 2 points buy an extra attack', () => {
-  assert.equal(fight(3, 3, 'offensive').pending.winnerId, 'B1'); // +0: a tie, defender wins
+  assert.equal(fight(3, 3, 'offensive').pending, null); // +0: a tie
   const armed = play(duel(3, 3), 'offensive'); // A: level 3 = 3 points
   assert.equal(maxBonus(armed), 3);
   assert.throws(() => attack(armed, 'A1', 'B1', 4));
@@ -420,8 +442,7 @@ test('a surrender card is harmless to a nation that still holds firm, and is rec
 
 test('a nation with no stacks left surrenders at once', () => {
   let state = duel(3, 1);
-  state = attack(play(state, 'attack'), 'A1', 'B1');
-  state = resolveHold(state);
+  state = attack(play(state, 'attack'), 'A1', 'B1'); // attrition destroys the lone man
   assert.equal(state.over.loser, 'B');
   assert.match(state.over.reason, /destroyed/);
 });

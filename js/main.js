@@ -163,9 +163,9 @@ function drawDecision() {
   const loser = getStack(state, pending.loserId);
   const canRetreat = retreatOptions(state).length > 0;
   decisionText.textContent =
-    `Player ${loser.owner}: ${loser.id} lost the battle. Hold (lose 2 men), ` +
+    `Player ${loser.owner}: ${loser.id} is overpowered. Stand (lose 1 more man), ` +
     (canRetreat
-      ? 'or click a highlighted hex to retreat (lose 1 man + 1 gear).'
+      ? `or click a highlighted hex to retreat (lose ${loser.gear > 0 ? '1 gear' : '1 man'}).`
       : 'it cannot retreat.');
 }
 
