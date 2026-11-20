@@ -47,47 +47,47 @@ aside h2:first-child { margin-top: 0; }
 .legend { display: grid; grid-template-columns: auto 1fr; gap: .3rem .6rem; font-size: .85rem; align-items: center; }
 .swatch { width: 1rem; height: 1rem; border-radius: 3px; border: 1px solid #0006; }
 
-.hex { stroke: #0003; stroke-width: 1; cursor: default; fill: #b1bc9d; }
-.hex.rough { fill: #a3ac8c; }
-.hex.fortified, .hex.fortress { fill: #b9b9b4; }
-.hex.mountain { fill: #b9b2a6; }
-.hex.hills { fill: #c8bd9b; }
-.hex.forest { fill: #95a689; }
-.hex.marsh { fill: #a9c2b6; }
-.hex.city { fill: #c2bfb9; }
-.hex.bigcity { fill: #d1cec7; }
-.hex.sea { fill: #809cb4; stroke: #0004; pointer-events: none; }
-.hex.target { fill: #e8db9c; cursor: pointer; }
-.place { font-size: 14px; fill: #1a1a1a; pointer-events: none; paint-order: stroke; stroke: #fffc; stroke-width: 3px; }
-.country { font-size: 20px; font-weight: bold; letter-spacing: 4px; fill: #000; fill-opacity: .28; pointer-events: none; }
-.river { fill: none; stroke: #92bce3; stroke-width: 4; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
-.river.big { stroke: #7fa1d0; stroke-width: 9; }
+.hex { stroke: #0003; stroke-width: 1; cursor: default; fill: #828d6d; }
+.hex.rough { fill: #697250; }
+.hex.fortified, .hex.fortress { fill: #90908b; }
+.hex.mountain { fill: #8c8478; }
+.hex.hills { fill: #9b916f; }
+.hex.forest { fill: #586a4a; }
+.hex.marsh { fill: #80988c; }
+.hex.city { fill: #9e9b95; }
+.hex.bigcity { fill: #b7b4ae; }
+.hex.sea { fill: #43617b; stroke: #0004; pointer-events: none; }
+.hex.target { fill: #d8c35a; cursor: pointer; }
+.place { font-size: 19px; font-weight: 700; fill: #111; pointer-events: none; paint-order: stroke; stroke: #fff; stroke-width: 5px; stroke-linejoin: round; }
+.country { font-size: 28px; font-weight: 800; letter-spacing: 6px; fill: #111; fill-opacity: .75; pointer-events: none; paint-order: stroke; stroke: #fff; stroke-opacity: .8; stroke-width: 5px; stroke-linejoin: round; }
+.river { fill: none; stroke: #6f96ba; stroke-width: 4; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
+.river.big { stroke: #4a6ea0; stroke-width: 9; }
 .zoc { fill: #e0402e; fill-opacity: .16; pointer-events: none; }
 .swatch.zoc { background: #e0402e55; }
-.swatch.terrain { background: #b9a689; border-radius: 50%; }
-.swatch.trench { background: #898989; border-radius: 50%; }
-.swatch.rough { background: #a3ac8c; }
-.swatch.fortified { background: #b9b9b4; }
-.swatch.sea { background: #809cb4; }
-.swatch.mountain { background: #b9b2a6; }
-.swatch.hills { background: #c8bd9b; }
-.swatch.forest { background: #95a689; }
-.swatch.marsh { background: #a9c2b6; }
-.swatch.city { background: #c2bfb9; }
-.swatch.bigcity { background: #d1cec7; }
-.swatch.river { background: #92bce3; height: .4rem; }
-.swatch.bigriver { background: #7fa1d0; height: .6rem; }
-.terrain-chip { fill: #b9a689; stroke: #827a70; stroke-width: 1; }
-.terrain-chip.f-mountain { fill: #afa69b; }
-.terrain-chip.f-hills { fill: #d0c29c; }
-.terrain-chip.f-forest { fill: #869c7f; }
-.terrain-chip.f-marsh { fill: #9fc2b8; }
-.terrain-chip.f-river { fill: #92bce3; }
-.terrain-chip.f-bigriver { fill: #7fa1d0; }
-.terrain-chip.f-city { fill: #cbc8c2; }
-.terrain-chip.f-bigcity { fill: #e3e0d9; }
-.terrain-chip.f-fortress, .terrain-chip.f-fortified { fill: #a0a0a0; }
-.trench-chip { fill: #898989; stroke: #000; stroke-width: 1; }
+.swatch.terrain { background: #846f50; border-radius: 50%; }
+.swatch.trench { background: #434343; border-radius: 50%; }
+.swatch.rough { background: #697250; }
+.swatch.fortified { background: #90908b; }
+.swatch.sea { background: #43617b; }
+.swatch.mountain { background: #8c8478; }
+.swatch.hills { background: #9b916f; }
+.swatch.forest { background: #586a4a; }
+.swatch.marsh { background: #80988c; }
+.swatch.city { background: #9e9b95; }
+.swatch.bigcity { background: #b7b4ae; }
+.swatch.river { background: #6f96ba; height: .4rem; }
+.swatch.bigriver { background: #4a6ea0; height: .6rem; }
+.terrain-chip { fill: #846f50; stroke: #32291b; stroke-width: 1; }
+.terrain-chip.f-mountain { fill: #7c7166; }
+.terrain-chip.f-hills { fill: #a59874; }
+.terrain-chip.f-forest { fill: #415a3a; }
+.terrain-chip.f-marsh { fill: #73968b; }
+.terrain-chip.f-river { fill: #6f96ba; }
+.terrain-chip.f-bigriver { fill: #4a6ea0; }
+.terrain-chip.f-city { fill: #adaaa5; }
+.terrain-chip.f-bigcity { fill: #d4d2cc; }
+.terrain-chip.f-fortress, .terrain-chip.f-fortified { fill: #686868; }
+.trench-chip { fill: #434343; stroke: #000; stroke-width: 1; }
 .pile { pointer-events: none; }
 #bonus button.on, #modes button.on { background: #d4af37; color: #000; }
 #bonus[hidden], #modes[hidden] { display: none; }
@@ -118,7 +118,7 @@ aside h2:first-child { margin-top: 0; }
 .tint-L { fill: #3fb06a; fill-opacity: .2; }
 .tint-N { fill: #f08a2c; fill-opacity: .18; }
 .tint-E { fill: #e8d24a; fill-opacity: .18; }
-.border { fill: none; stroke: #5c5446; stroke-width: 3; stroke-linecap: round; pointer-events: none; }
+.border { fill: none; stroke: #14100a; stroke-width: 4.5; stroke-linecap: round; pointer-events: none; }
 .swatch.terr-A { background: #c0392b; }
 .swatch.terr-B { background: #2e6fbf; }
 .swatch.terr-N { background: #d9a64a; }
