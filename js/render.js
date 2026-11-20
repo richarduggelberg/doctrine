@@ -1,5 +1,5 @@
 import { center, corners, edgeSegments, key } from './hex.js';
-import { terrainAt, territoryOf } from './engine.js';
+import { strength, terrainAt, territoryOf } from './engine.js';
 
 const SIZE = 36;
 const CHIP_RADIUS = 21;
@@ -80,12 +80,15 @@ export function renderBoard(svg, state, view) {
     if (view.friendTargets.has(stack.id)) classes.push('mergeable');
     if (stack.id === view.loserId) classes.push('loser');
     const topY = y + 6 - (kinds.length - 1) * thickness;
-    const label = stack.gear ? `${stack.men}+${stack.gear}` : `${stack.men}`;
+    // Big number: strength when defending (terrain, trenches, brace included). Small: the mobile part that attacks.
+    const defend = strength(state, stack, true);
+    const offence = strength(state, stack, false);
     parts.push(
       `<g class="${classes.join(' ')}" data-stack="${stack.id}">` +
         `<ellipse class="halo" cx="${x}" cy="${y + 6}" rx="${CHIP_RADIUS + 4}" ry="${CHIP_RADIUS * 0.55 + 4}"/>` +
         chips.join('') +
-        `<text class="count" x="${x}" y="${topY + 6}" text-anchor="middle">${label}</text>` +
+        `<text class="count" x="${x}" y="${topY + 6}" text-anchor="middle">${defend}` +
+        `<tspan class="attack" dx="3">/${offence}</tspan></text>` +
         `</g>`,
     );
   }
