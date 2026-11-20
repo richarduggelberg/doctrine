@@ -10,8 +10,8 @@
   },
   "surrender": {
     "count": 3,
-    "thresholdMin": 8,
-    "thresholdMax": 12,
+    "thresholdMin": 14,
+    "thresholdMax": 20,
     "battleWeight": 2,
     "homeHexWeight": 1,
     "capitalWeight": 3,

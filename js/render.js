@@ -70,6 +70,7 @@ export function renderBoard(svg, state, view) {
     }
     const classes = ['stack', `owner-${stack.owner}`];
     if (stack.braced) classes.push('braced');
+    if (stack.spent) classes.push('spent');
     if (view.eligible.has(stack.id)) classes.push('eligible');
     if (stack.id === view.selectedId) classes.push('selected');
     if (view.enemyTargets.has(stack.id)) classes.push('attackable');

@@ -56,7 +56,7 @@ export function territoryOf(state, col) {
 // lost battles, lost home ground); only the threshold it is compared with is hidden.
 export function breakScore(state, owner) {
   const s = state.surrender;
-  let score = state.casualties[owner] + s.battleWeight * state.battlesLost[owner];
+  let score = state.casualties[owner] + s.battleWeight * state.battlesLost[owner] + state.weariness[owner];
   for (const stack of state.stacks) {
     if (stack.owner === owner || territoryOf(state, stack.col) !== owner) continue;
     const cap = state.capitals[owner];
@@ -114,6 +114,7 @@ export function createGame(map, config, seed = 1) {
     men: s.men,
     gear: 0,
     braced: 0,
+    spent: false,
   }));
   const state = {
     cols: map.cols,
@@ -124,7 +125,7 @@ export function createGame(map, config, seed = 1) {
     capitals: structuredClone(map.capitals),
     stacks,
     idCounters: counters,
-    defense: {},
+    defense: { ...map.defense },
     defs: Object.fromEntries(config.cards.map((c) => [c.id, c])),
     doctrine: structuredClone(config.doctrine),
     levels: structuredClone(config.levels),
@@ -142,6 +143,11 @@ export function createGame(map, config, seed = 1) {
     turn: 1,
     casualties: { A: 0, B: 0 },
     battlesLost: { A: 0, B: 0 },
+    // War weariness: +1 for each of a nation's turns that ends without capturing a hex; a capture resets it.
+    weariness: { A: 0, B: 0 },
+    captured: false,
+    // A stack on the enemy capital is 'armed'; if it is still there when the enemy's turn ends, the war is won.
+    siege: { A: null, B: null },
     resolve: { A: 0, B: 0 },
     surrender: { ...config.surrender },
     thresholds: {},
@@ -187,11 +193,16 @@ export function getStack(state, id) {
   return state.stacks.find((s) => s.id === id);
 }
 
+// Terrain and trench chips in a hex: the defence a stack there gets, and what an attacker pays in blood.
+export function fortification(state, col, row) {
+  return (TERRAIN_BONUS[terrainAt(state, col, row)] ?? 0) + (state.defense[key(col, row)] ?? 0);
+}
+
+// A stack that has just advanced is spent: -1 strength until its owner's next turn begins.
 export function strength(state, stack, defending) {
-  if (!defending) return stack.men + stack.gear;
-  const terrain = TERRAIN_BONUS[terrainAt(state, stack.col, stack.row)] ?? 0;
-  const trenches = state.defense[key(stack.col, stack.row)] ?? 0;
-  return stack.men + stack.gear + terrain + trenches + stack.braced;
+  const base = stack.men + stack.gear - (stack.spent ? 1 : 0);
+  if (!defending) return base;
+  return base + fortification(state, stack.col, stack.row) + stack.braced;
 }
 
 function adjacentStacks(state, stack, owned) {
@@ -392,10 +403,11 @@ export function attack(state, attackerId, defenderId, bonus = 0) {
   const verdict =
     attackStrength > defenseStrength ? 'attacker' : attackStrength < defenseStrength ? 'defender' : 'stalemate';
 
-  // Attrition: every battle costs each side 1 man, whoever wins.
+  // Bloodletting: the attacker pays for the defender's terrain and trench chips (min 1);
+  // the defender pays 1 plus the offensive points spent (artillery weight). Whoever wins.
   attacker.braced = 0;
-  loseMen(next, attacker, 1);
-  loseMen(next, defender, 1);
+  const attackerLoss = loseMen(next, attacker, Math.max(1, fortification(next, defender.col, defender.row)));
+  const defenderLoss = loseMen(next, defender, 1 + bonus);
   if (verdict === 'attacker') {
     attacker.gear += 1;
     next.battlesLost[defender.owner] += 1;
@@ -418,7 +430,7 @@ export function attack(state, attackerId, defenderId, bonus = 0) {
   }[verdict];
   next.log.push(
     `${attackerId} (${attackStrength}${bonus ? `, incl. +${bonus}` : ''}) attacks ${defenderId} (${defenseStrength}): ` +
-      `${outcome}; each side loses 1 man.`,
+      `${outcome}; ${attackerId} loses ${attackerLoss}, ${defenderId} loses ${defenderLoss}.`,
   );
   // Only an attacker with the upper hand forces the surviving defender to choose.
   if (verdict === 'attacker' && defender.men > 0) next.pending = battle;
@@ -449,7 +461,9 @@ function finishBattle(next, battle) {
   ) {
     attacker.col = battle.defenderCol;
     attacker.row = battle.defenderRow;
-    next.log.push(`${attacker.id} advances to (${attacker.col},${attacker.row})`);
+    attacker.spent = true;
+    next.captured = true;
+    next.log.push(`${attacker.id} advances to (${attacker.col},${attacker.row}) and is spent`);
   }
   // A nation with no stacks left cannot fight on.
   const wiped = PLAYERS.find((p) => !next.stacks.some((s) => s.owner === p));
@@ -504,6 +518,7 @@ export function mergeStacks(state, sourceId, targetId) {
   target.men += source.men;
   target.gear += source.gear;
   target.braced = Math.min(target.braced, source.braced);
+  target.spent = target.spent || source.spent;
   next.stacks = next.stacks.filter((s) => s.id !== sourceId);
   next.log.push(`${sourceId} merges into ${targetId} (${target.men} men, ${target.gear} gear)`);
   consume(next, sourceId);
@@ -527,7 +542,7 @@ export function splitStack(state, id, col, row) {
   stack.men -= sent;
   stack.gear -= gearSent;
   const newId = `${stack.owner}${++next.idCounters[stack.owner]}`;
-  next.stacks.push({ id: newId, owner: stack.owner, col, row, men: sent, gear: gearSent, braced: 0 });
+  next.stacks.push({ id: newId, owner: stack.owner, col, row, men: sent, gear: gearSent, braced: 0, spent: false });
   next.log.push(`${id} splits: ${newId} (${sent} men${gearSent ? `, ${gearSent} gear` : ''}) at (${col},${row})`);
   consume(next, id);
   return next;
@@ -578,12 +593,41 @@ export function endTurn(state) {
   if (next.active) cancelActive(next);
   draw(next, next.current);
   if (next.over) return next;
-  const index = PLAYERS.indexOf(next.current);
-  next.current = PLAYERS[(index + 1) % PLAYERS.length];
+  const ender = next.current;
+  const enemy = PLAYERS.find((p) => p !== ender);
+  // Capital siege: the enemy held our capital through our whole turn, so the war is lost.
+  const onCapital = (owner, capitalOwner) =>
+    next.stacks.some(
+      (s) => s.owner === owner && s.col === next.capitals[capitalOwner].col && s.row === next.capitals[capitalOwner].row,
+    );
+  if (next.siege[enemy] === 'armed' && onCapital(enemy, ender)) {
+    endGame(next, ender, 'capital held for a full round');
+    return next;
+  }
+  next.siege[enemy] = onCapital(enemy, ender) ? next.siege[enemy] : null;
+  if (onCapital(ender, enemy)) {
+    if (!next.siege[ender]) next.log.push(`${ender} stands on the enemy capital: hold it through the enemy turn to win`);
+    next.siege[ender] = 'armed';
+  } else {
+    next.siege[ender] = null;
+  }
+  // War weariness: a turn without ground captured wears the nation down; a capture restores heart.
+  if (next.captured) next.weariness[ender] = 0;
+  else {
+    next.weariness[ender] += 1;
+    next.log.push(`${ender} gained no ground: war weariness ${next.weariness[ender]}`);
+  }
+  next.captured = false;
+  next.current = enemy;
   if (next.current === PLAYERS[0]) next.turn += 1;
   next.played = 0;
   next.discardUsed = false;
-  for (const stack of next.stacks) if (stack.owner === next.current) stack.braced = 0;
+  for (const stack of next.stacks) {
+    if (stack.owner === next.current) {
+      stack.braced = 0;
+      stack.spent = false;
+    }
+  }
   next.log.push(`Turn ${next.turn}: Player ${next.current}`);
   return next;
 }

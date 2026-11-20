@@ -417,7 +417,9 @@ Everything else is deferred.
     - Each stack acts at most once per turn (move 1 hex or attack 1 adjacent
       hex).
     - Strength = men + gear/exp (+ terrain + defense chips if defending).
-    - COMBAT (revised in M7, see 18.6): both sides lose 1 man (attrition).
+    - COMBAT (revised in M7 and M8, see 18.6): attacker and defender both
+      lose men (attacker: the defender's terrain + trench chips, defender:
+      1 + Offensive points).
       Larger strength has the upper hand; a tie is a stalemate. If the
       attacker has the upper hand the defender chooses STAND (1 more man)
       or RETREAT (1 gear, else 1 man). Otherwise nothing more happens.
@@ -651,6 +653,57 @@ playtests disagree):
     each), so attacking at bad odds is cheap; consider making a repulsed
     attacker lose 1 extra man. Casualties accrue faster, so the 8-12
     surrender thresholds probably need to rise.
+    (Both addressed in M8.)
+
+  M8 decisions - THE WESTERN FRONT FEEL (supersedes the flat 1-man
+  attrition of M7; the stand/retreat/repulse/tie structure stays):
+  Research basis (Wikipedia: Somme, Verdun, Passchendaele, Defence in depth):
+    * Somme: 57,470 British casualties on day one (19,240 dead), over a
+      million casualties all sides, for a few km. Attackers bled as much
+      as defenders.
+    * Verdun: designed to bleed France of men and will, not to take ground.
+    * Defence in depth: yield space, let the attack lose momentum, counter-
+      attack. Prepared defences made attackers pay. (From general
+      knowledge, not checked: ~3:1 local superiority rule of thumb; French
+      mutinies after Nivelle 1917; wars ended when will broke.)
+  Rules:
+  1. BLOODLETTING (replaces the flat 1 man each).
+       Attacker loses the defender's terrain chips + trench chips (min 1).
+       Defender loses 1 + the Offensive points spent on the attack.
+     Aggressive doctrine makes the enemy bleed; Defensive doctrine and
+     terrain make the attacker bleed. Whoever has the upper hand, both pay.
+       Somme example: 6 men + 3 pts vs 5 men on fortified + 2 trenches is
+       9 vs 9: stalemate, the attacker loses 4, the defender loses 4.
+  2. SPENT ATTACKERS: a stack that advances is spent, -1 strength (attack
+     and defence) until its owner's next turn begins. A counter-attack
+     window, standing in for attacks outrunning their support. (Captured
+     trenches facing the wrong way was proposed and REJECTED as too
+     complicated.)
+  3. WAR WEARINESS (the standstill clock): at the end of each of a nation's
+     turns in which it captured no hex, its weariness rises by 1 and counts
+     in its break score. Capturing a hex resets it to 0. In a stalemate
+     both nations tire; willingness doctrine and Propaganda decide who
+     breaks first. Gains justify the losses; no gains, no tolerance.
+  4. DEPTH: map.json now holds "defense": 1 trench chip on each starting
+     front-line hex, a second line (3 hexes per side, 1 chip), and 2 trench
+     chips on each capital. Surrender thresholds rise from 8-12 to 14-20
+     (+2 per willingness card as before).
+  5. CAPITAL SIEGE (victory by gains): if a nation has a stack on the enemy
+     capital at the end of its own turn and that stack is still there at
+     the end of the enemy's next turn, the war is won outright. Breaking
+     will remains the other way to win; it is checked only on surrender
+     cards as before.
+  Simulation (tools/simulate.mjs, heuristic bots, 300 seeded games):
+    * Mirror doctrine: 49/51 split A/B. No first-mover advantage.
+    * Default doctrines (A aggressive 3 vs B defensive 3): ~90% A. About
+      13 rounds, ~8 A / ~14 B casualties of 25 men; 70% end on surrender
+      cards, 28% on capital sieges, rarely total destruction.
+    * Doctrines closer together (B aggressive 2, defensive 2) are ~50/50.
+  Open: a pure defensive doctrine loses to the naive bot. The bot never
+  counter-attacks cleverly, so this needs human playtests. If it holds up:
+  min attacker loss 2 (tested: 82/18 and casualties 11.5/14.9 instead of
+  8.2/14.5), a defensive weariness relief, or stronger Defensive levels.
+  Not built: manpower pools and replacements, wrong-way trenches.
 
 
 

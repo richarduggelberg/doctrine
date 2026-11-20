@@ -268,8 +268,8 @@ test('an extra attack costs points, leaving less for bonuses; a different stack 
     },
     config,
   );
-  let s = attack(play(state, 'offensive'), 'A1', 'B1', 1); // 3 points: 1 spent, 2 left
-  s = resolveHold(s); // B1 destroyed
+  let s = attack(play(state, 'offensive'), 'A1', 'B1', 1); // 3 points: 1 spent, 2 left; B1 loses 1 + 1 and is destroyed
+  assert.equal(s.pending, null);
   assert.equal(maxBonus(s), 0); // the extra attack uses the remaining 2
   assert.throws(() => attack(s, 'A2', 'B2', 1));
   assert.deepEqual(legalAttacks(s, 'A1'), []);
@@ -381,6 +381,7 @@ test('ending a turn refills the hand, resets plays and switches player', () => {
 
 test('the discard pile is reshuffled when the deck runs out', () => {
   let state = createGame(map, config, 3);
+  state.thresholds = { A: 999, B: 999 }; // weariness grows every turn; keep the surrender cards harmless
   const turns = 60; // each turn draws 1 card from a 27-card deck, so discards must be reshuffled
   for (let i = 0; i < turns; i++) {
     state = discardCard(state, state.hands[state.current][0].uid);
@@ -438,6 +439,82 @@ test('a surrender card is harmless to a nation that still holds firm, and is rec
   assert.ok(state.hands.A.every((c) => c.type !== 'surrender'));
   assert.ok(state.discard.some((c) => c.type === 'surrender'));
   assert.equal(state.current, 'B');
+});
+
+test('bloodletting: the attacker pays for terrain and trenches, the defender for offensive points', () => {
+  assert.equal(fight(6, 3, 'attack', { '2,2': 'fortified' }).stacks[0].men, 4); // paid 2
+  const dug = play(duel(9, 3, { '2,2': 'rough' }), 'attack');
+  dug.defense['2,2'] = 2;
+  assert.equal(attack(dug, 'A1', 'B1').stacks[0].men, 6); // rough + 2 trenches: paid 3
+  const shelled = attack(play(duel(9, 5), 'offensive'), 'A1', 'B1', 2);
+  assert.equal(shelled.stacks.find((s) => s.id === 'B1').men, 2); // 1 + 2 offensive points
+});
+
+// A duel where B has a second stack far away, so destroying B1 does not end the game.
+function duelWithReserve(a, b) {
+  const state = duel(a, b);
+  state.stacks.push({ id: 'B9', owner: 'B', col: 6, row: 0, men: 3, gear: 0, braced: 0, spent: false });
+  return state;
+}
+
+test('an advancing stack is spent until its owner next turn begins', () => {
+  let state = attack(play(duelWithReserve(6, 1), 'attack'), 'A1', 'B1'); // B1 dies, A1 advances
+  const attacker = state.stacks.find((s) => s.id === 'A1');
+  assert.equal(attacker.spent, true);
+  assert.equal(strength(state, attacker, false), attacker.men + attacker.gear - 1);
+  state = endTurn(state); // B's turn: A1 is still spent
+  assert.equal(state.stacks.find((s) => s.id === 'A1').spent, true);
+  state = endTurn(state);
+  assert.equal(state.stacks.find((s) => s.id === 'A1').spent, false);
+});
+
+test('war weariness grows on turns without a capture and resets when ground is taken', () => {
+  let state = duel(3, 3);
+  state.resolve.A = 0;
+  state = endTurn(state);
+  assert.equal(state.weariness.A, 1);
+  assert.equal(breakScore(state, 'A'), 1);
+  state = endTurn(endTurn(state));
+  assert.equal(state.weariness.A, 2);
+});
+
+test('capturing a hex resets war weariness', () => {
+  let state = duelWithReserve(6, 1);
+  state.weariness.A = 5;
+  state = attack(play(state, 'attack'), 'A1', 'B1');
+  state = endTurn(state);
+  assert.equal(state.weariness.A, 0);
+});
+
+test('holding the enemy capital through the enemy turn wins the war outright', () => {
+  let state = duel(3, 3);
+  const capital = state.capitals.B;
+  state.stacks.find((s) => s.id === 'A1').col = capital.col;
+  state.stacks.find((s) => s.id === 'A1').row = capital.row;
+  state = endTurn(state);
+  assert.equal(state.over, null);
+  assert.equal(state.siege.A, 'armed');
+  state = endTurn(state);
+  assert.equal(state.over.winner, 'A');
+  assert.match(state.over.reason, /capital/);
+});
+
+test('an enemy driven off the capital before the round ends does not win', () => {
+  let state = duel(3, 3);
+  const a1 = state.stacks.find((s) => s.id === 'A1');
+  [a1.col, a1.row] = [state.capitals.B.col, state.capitals.B.row];
+  state = endTurn(state);
+  state.stacks = state.stacks.filter((s) => s.id !== 'A1');
+  state.stacks.push({ id: 'A9', owner: 'A', col: 1, row: 2, men: 3, gear: 0, braced: 0, spent: false });
+  state = endTurn(state);
+  assert.equal(state.over, null);
+  assert.equal(state.siege.A, null);
+});
+
+test('the map starts with trench chips on the front and second lines', () => {
+  const state = createGame(map, config);
+  assert.equal(state.defense['4,0'], 1);
+  assert.equal(state.defense['0,3'], 2);
 });
 
 test('a nation with no stacks left surrenders at once', () => {

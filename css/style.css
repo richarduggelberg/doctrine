@@ -67,6 +67,7 @@ aside h2:first-child { margin-top: 0; }
 .stack .halo { fill: none; stroke: none; }
 .stack.eligible .halo { stroke: #7fd1ff; stroke-width: 2.5; stroke-dasharray: 2 3; }
 .stack.braced .chip { stroke: #fff; stroke-width: 1.5; }
+.stack.spent .chip { opacity: 0.55; stroke-dasharray: 3 2; }
 .stack.selected .halo { stroke: #fff; stroke-width: 2.5; stroke-dasharray: none; }
 .stack.attackable .halo { stroke: #ff3b30; stroke-width: 3; stroke-dasharray: 5 3; }
 .stack.mergeable .halo { stroke: #34c759; stroke-width: 3; stroke-dasharray: 5 3; }
@@ -79,6 +80,7 @@ aside h2:first-child { margin-top: 0; }
 .swatch.terr-A { background: #c0392b; }
 .swatch.terr-B { background: #2e6fbf; }
 .swatch.gear { background: #d4af37; border-radius: 50%; }
+.swatch.spent { background: #c0392b; opacity: 0.55; border-radius: 50%; border: 1px dashed #fff; }
 #decision { background: #3a2f12; border: 1px solid #d4af37; border-radius: 4px; padding: .6rem; margin-top: 1rem; font-size: .9rem; }
 #decision[hidden] { display: none; }
 #decision p { margin: 0 0 .5rem; }

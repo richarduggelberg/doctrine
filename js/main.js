@@ -132,7 +132,9 @@ function drawStatus() {
     `Doctrine ${state.current}: ${own} | Doctrine ${other}: ${theirs} | Plays left: ${state.cardsPerTurn - state.played} | ` +
     `Discard: ${state.discardUsed ? 'used' : 'available'} | Deck: ${state.deck.length} | ` +
     `Player ${other} holds ${state.hands[other].length} cards | ` +
-    `Break score A ${breakScore(state, 'A')}, B ${breakScore(state, 'B')} (thresholds hidden)`;
+    `Break score A ${breakScore(state, 'A')}, B ${breakScore(state, 'B')} (thresholds hidden) | ` +
+    `Weariness A ${state.weariness.A}, B ${state.weariness.B}` +
+    ['A', 'B'].filter((p) => state.siege[p]).map((p) => ` | ${p} holds the enemy capital: wins if it survives the enemy turn`).join('');
 }
 
 function drawOrder() {
@@ -173,7 +175,7 @@ function drawOver() {
   const over = state.over;
   overPanel.hidden = !over;
   if (!over) return;
-  $('over-title').textContent = `Player ${over.loser} surrenders - Player ${over.winner} wins`;
+  $('over-title').textContent = `Player ${over.loser} is defeated - Player ${over.winner} wins`;
   $('over-reason').textContent = over.reason;
   const rows = ['A', 'B']
     .map((p) => `<tr><td>Player ${p}</td><td>${over.scores[p]}</td><td>${over.thresholds[p]}</td></tr>`)
