@@ -11,18 +11,20 @@
   "suits": { "S": "aggressive", "C": "defensive", "D": "reorganizational", "H": "willingness" },
   "doctrineShift": [-2, -1, 0, 1],
   "surrender": {
-    "thresholdMin": 40,
-    "thresholdMax": 56,
+    "thresholdMin": 56,
+    "thresholdMax": 72,
     "battleWeight": 2,
     "homeHexWeight": 1,
     "capitalWeight": 3,
+    "townWeight": 1,
+    "bigTownWeight": 2,
     "willingnessThreshold": 2,
     "publicResolve": 2
   },
   "maxLevel": 3,
   "doctrine": {
-    "A": { "public": true, "cards": { "aggressive": 3, "reorganizational": 2, "defensive": 1, "willingness": 0 } },
-    "B": { "public": true, "cards": { "defensive": 3, "willingness": 2, "reorganizational": 1, "aggressive": 0 } }
+    "A": { "public": true, "cards": { "willingness": 3, "defensive": 2, "reorganizational": 1, "aggressive": 0 } },
+    "B": { "public": true, "cards": { "aggressive": 3, "reorganizational": 2, "defensive": 1, "willingness": 0 } }
   },
   "orders": {
     "aggressive": {

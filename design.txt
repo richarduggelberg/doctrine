@@ -823,10 +823,25 @@ M10 - PLAYING CARDS, TIERS, LONGER WALKS (supersedes M3 deck, M9 items 2, 3, 7)
      longer fits is lost along with the men.
   9. SURRENDER: the surrender cards are gone with the jokers. Instead, at the
      end of each player's own turn the nation breaks if its break score has
-     reached its hidden threshold (40-56, +2 per willingness level).
-  Simulation (40 seeded games, naive bots): A 17 / B 23, ~13 rounds, casualties
-  ~27 / ~33. Games are shorter and bloodier than M9 because attacks are cheap;
-  the thresholds are the knob to tune after human playtests.
+     reached its hidden threshold (56-72, +2 per willingness level).
+ 10. TOWNS: the map has ~100 named places (big cities and fortresses, cities,
+     small towns; sized by label). Each one on French or German soil belongs
+     to that nation; Belgian, Luxembourg and Dutch ones are neutral and never
+     change hands. A stack standing on an enemy town captures it (also by
+     advancing into it after a won attack); the town is then outlined in the
+     captor's colour with a flag and stays captured until a stack of the other
+     side stands on it again. EXHAUSTION: at the end of each of its own turns
+     a nation gains +1 exhaustion for each town the enemy holds (+2 for big
+     cities and fortresses). It never resets and adds to the break score on
+     top of weariness. Capitals are towns too (and still win the war when held
+     a full round).
+ 11. SURROUNDED STACKS: a cut-off stack (item 8 of M9) now loses 1 gear chip on
+     each of its owner's turns while it has gear, and 1 man each turn once the
+     gear is gone, starting with the first turn.
+  Simulation (40 seeded games, naive bots, thresholds raised from 40-56 to
+  56-72 to make up for the exhaustion ticks): A ~29 / B ~11, ~14 rounds. Bots
+  do not defend towns, and the side that moves first captures first, so the
+  first-mover edge is the thing to watch in human playtests.
 
 
 

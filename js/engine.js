@@ -93,11 +93,33 @@ export function countryAt(state, col, row) {
   return state.countries?.[row]?.[col] ?? null;
 }
 
+// Towns: every named place on a player's own soil starts in that player's hands. A stack of the other player
+// standing on it takes it, and it stays taken until someone else's stack stands there. Neutral towns never change hands.
+export function updateTowns(state) {
+  for (const town of state.towns) {
+    const stack = stackAt(state, town.col, town.row);
+    if (!town.home || !stack || stack.owner === town.holder) continue;
+    town.holder = stack.owner;
+    state.log.push(
+      stack.owner === town.home ? `${stack.id} retakes ${town.name}` : `${stack.id} captures ${town.name} from Player ${town.home}`,
+    );
+  }
+}
+
+// Towns of `owner` that the enemy holds, and what they cost it in exhaustion each turn.
+export function townsLost(state, owner) {
+  return state.towns.filter((t) => t.home === owner && t.holder !== owner);
+}
+
+export function townWeight(state, town) {
+  return town.size === 'big' ? state.surrender.bigTownWeight : state.surrender.townWeight;
+}
+
 // Break score: how close a nation is to giving up. Public information (casualties,
 // lost battles, lost home ground); only the threshold it is compared with is hidden.
 export function breakScore(state, owner) {
   const s = state.surrender;
-  let score = state.casualties[owner] + s.battleWeight * state.battlesLost[owner] + state.weariness[owner];
+  let score = state.casualties[owner] + s.battleWeight * state.battlesLost[owner] + state.weariness[owner] + state.exhaustion[owner];
   for (const stack of state.stacks) {
     if (stack.owner === owner || territoryOf(state, stack.col, stack.row) !== owner) continue;
     const cap = state.capitals[owner];
@@ -190,6 +212,9 @@ export function createGame(map, config, seed = 1) {
     battlesLost: { A: 0, B: 0 },
     // War weariness: +1 for each of a nation's turns that ends without capturing a hex; a capture resets it.
     weariness: { A: 0, B: 0 },
+    // Exhaustion: a constant tick at the end of each of a nation's turns for every town the enemy holds. It never resets.
+    exhaustion: { A: 0, B: 0 },
+    towns: (map.places ?? []).map((p) => ({ ...p, home: null, holder: null })),
     captured: false,
     // A stack on the enemy capital is 'armed'; if it is still there when the enemy's turn ends, the war is won.
     siege: { A: null, B: null },
@@ -201,6 +226,7 @@ export function createGame(map, config, seed = 1) {
     log: ['Game start. Player A moves first.'],
   };
   const { thresholdMin, thresholdMax, willingnessThreshold, publicResolve } = config.surrender;
+  for (const town of state.towns) town.holder = town.home = territoryOf(state, town.col, town.row);
   for (const owner of PLAYERS) {
     const willingness = state.doctrine[owner].cards.willingness ?? 0;
     const base = thresholdMin + Math.floor(nextRandom(state) * (thresholdMax - thresholdMin + 1));
@@ -548,6 +574,7 @@ export function moveStack(state, id, col, row) {
   stack.braced = 0;
   stack.moved += move.dist;
   if (inEnemyZoc(next, stack.owner, col, row)) stack.halted = true;
+  updateTowns(next);
   return next;
 }
 
@@ -665,6 +692,7 @@ function finishBattle(next, battle) {
     next.captured = true;
     next.log.push(`${attacker.id} advances to (${attacker.col},${attacker.row})${battle.fresh ? '' : ' and is spent'}`);
   }
+  updateTowns(next);
   // A nation with no stacks left cannot fight on.
   const wiped = PLAYERS.find((p) => !next.stacks.some((s) => s.owner === p));
   if (wiped) endGame(next, wiped, 'all stacks destroyed');
@@ -763,6 +791,7 @@ export function splitStack(state, id, col, row) {
     moved: next.move, rail: 0, halted: false, fought: false, cut: 0,
   });
   next.log.push(`${id} splits: ${newId} (${sent} men${gearSent ? `, ${gearSent} gear` : ''}) at (${col},${row})`);
+  updateTowns(next);
   spend(next, next.active.menu.split);
   return next;
 }
@@ -859,6 +888,13 @@ export function endTurn(state) {
     next.log.push(`${ender} gained no ground: war weariness ${next.weariness[ender]}`);
   }
   next.captured = false;
+  // Exhaustion: each town the enemy holds costs this nation a little more every turn it stays lost.
+  const lostTowns = townsLost(next, ender);
+  const tick = lostTowns.reduce((sum, t) => sum + townWeight(next, t), 0);
+  if (tick) {
+    next.exhaustion[ender] += tick;
+    next.log.push(`${ender} has lost ${lostTowns.length} town${lostTowns.length === 1 ? '' : 's'}: exhaustion +${tick}`);
+  }
   // The nation breaks when its (public) break score reaches its hidden threshold, checked at the end of its own turn.
   if (breakScore(next, ender) >= next.thresholds[ender]) {
     endGame(next, ender, 'will to fight broken');
@@ -869,21 +905,19 @@ export function endTurn(state) {
   next.played = 0;
   next.discardUsed = false;
   next.elastic[next.current] = false;
-  // Cut-off stacks bleed: gear the first turn, then a man every turn after that.
+  // Surrounded stacks bleed at the start of each of their owner's turns: a gear chip first, then a man every turn.
   for (const stack of next.stacks.filter((s) => s.owner === next.current)) {
     if (!isCutOff(next, stack)) {
       stack.cut = 0;
       continue;
     }
     stack.cut += 1;
-    if (stack.cut === 1 && stack.gear > 0) {
+    if (stack.gear > 0) {
       stack.gear -= 1;
-      next.log.push(`${stack.id} is cut off from supply and loses 1 gear`);
-    } else if (stack.cut > 1) {
-      loseMen(next, stack, 1);
-      next.log.push(`${stack.id} is cut off from supply and loses 1 man`);
+      next.log.push(`${stack.id} is surrounded and loses 1 gear`);
     } else {
-      next.log.push(`${stack.id} is cut off from supply`);
+      loseMen(next, stack, 1);
+      next.log.push(`${stack.id} is surrounded and loses 1 man`);
     }
   }
   next.stacks = next.stacks.filter((s) => s.men > 0);

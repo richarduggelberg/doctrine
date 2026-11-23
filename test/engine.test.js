@@ -3,15 +3,20 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   applyPool, applyToStack, attack, breakScore, cardIssue, chooseMode, countryAt, createGame, discardCard, eligibleStacks, endOrder,
-  endTurn, featuresAt, fortification, inBounds, inEnemyZoc, legalAttacks, legalMerges, legalMoves, legalSplits,
+  endTurn, featuresAt, fortification, inBounds, inEnemyZoc, isCutOff, legalAttacks, legalMerges, legalMoves, legalSplits,
   maxBonus, mergeStacks, moveStack, orderTier, pairIssue, playCard, resolveHold, resolveRetreat, retreatOptions, splitStack,
-  stackAt, strength, terrainAt, terrainBonus, territoryOf,
+  stackAt, strength, terrainAt, terrainBonus, territoryOf, townsLost,
 } from '../js/engine.js';
 import { distance, neighbors } from '../js/hex.js';
 
 const read = (path) => JSON.parse(readFileSync(new URL(path, import.meta.url)));
 const map = read('../data/map.json');
 const config = read('../data/cards.json');
+// Tests pin their own doctrines so they do not depend on the default scenario in cards.json.
+config.doctrine = {
+  A: { public: true, cards: { aggressive: 3, reorganizational: 2, defensive: 1, willingness: 0 } },
+  B: { public: true, cards: { defensive: 3, willingness: 2, reorganizational: 1, aggressive: 0 } },
+};
 
 // Put a specific card (suit letter S/C/D/H, rank 2-14) in the current player's hand; hands are otherwise random.
 function give(state, suit, rank) {
@@ -733,4 +738,81 @@ test('terrain modifiers stack: hills + big river + city fight as 4 chips of defe
   const cologne = bigMap.scenery.places.find((p) => p.name === 'Cologne');
   assert.deepEqual(featuresAt(bigMap, cologne.col, cologne.row), ['bigriver', 'bigcity']);
   assert.ok(Object.values(bigMap.terrain).some((t) => t.split('+').length >= 3), 'the map has triple stacks');
+});
+
+// A small map with one named place at (2,2), on Player B's side of the border (columns 0-1 are A's).
+function townGame(size) {
+  return createGame(
+    {
+      cols: 7,
+      rows: 5,
+      borderCol: 1,
+      terrain: {},
+      places: [{ name: 'Testville', col: 2, row: 2, size }],
+      capitals: { A: { col: 0, row: 0 }, B: { col: 6, row: 4 } },
+      stacks: [
+        { owner: 'A', col: 1, row: 2, men: 3 },
+        { owner: 'B', col: 6, row: 0, men: 3 },
+      ],
+    },
+    config,
+  );
+}
+
+test('a town starts with its home nation; the enemy takes it by standing on it, and it costs exhaustion every turn', () => {
+  const start = townGame('city');
+  assert.deepEqual(start.towns.map((t) => [t.home, t.holder]), [['B', 'B']]);
+  assert.equal(townsLost(start, 'B').length, 0);
+
+  const taken = moveStack(start, 'A1', 2, 2);
+  assert.equal(taken.towns[0].holder, 'A');
+  assert.equal(townsLost(taken, 'B').length, 1);
+  assert.ok(taken.log.some((l) => l.includes('captures Testville')));
+
+  const bTurn = endTurn(taken);
+  assert.equal(bTurn.exhaustion.B, 0, 'the tick comes at the end of the loser\'s own turn');
+  const again = endTurn(bTurn);
+  assert.equal(again.exhaustion.B, 1);
+  assert.ok(breakScore(again, 'B') > breakScore(bTurn, 'B'), 'exhaustion counts towards the break score');
+  assert.equal(endTurn(endTurn(again)).exhaustion.B, 2, 'and it keeps ticking while the town stays lost');
+  assert.equal(again.exhaustion.A, 0);
+
+  const big = endTurn(endTurn(moveStack(townGame('big'), 'A1', 2, 2)));
+  assert.equal(big.exhaustion.B, 2, 'a big town costs more');
+});
+
+// A1 sits at (1,2) behind a wall of B stacks at column 2; A's capital is out of reach on the far side.
+function surrounded(gear) {
+  const state = createGame(
+    {
+      cols: 7,
+      rows: 5,
+      borderCol: 1,
+      terrain: {},
+      capitals: { A: { col: 6, row: 0 }, B: { col: 6, row: 4 } },
+      stacks: [
+        { owner: 'A', col: 1, row: 2, men: 4 },
+        ...[0, 1, 2, 3, 4].map((row) => ({ owner: 'B', col: 2, row, men: 3 })),
+      ],
+    },
+    config,
+  );
+  state.stacks[0].gear = gear;
+  return state;
+}
+
+test('a surrounded stack loses a gear chip on each of its own turns, then a man on each', () => {
+  const turn = (state) => endTurn(endTurn(state)); // both players end their turn: it is A's turn again
+  let state = surrounded(2);
+  assert.equal(isCutOff(state, state.stacks[0]), true);
+  const a = (s) => s.stacks.find((x) => x.id === 'A1');
+  state = turn(state);
+  assert.deepEqual([a(state).men, a(state).gear], [4, 1]);
+  state = turn(state);
+  assert.deepEqual([a(state).men, a(state).gear], [4, 0]);
+  state = turn(state);
+  assert.deepEqual([a(state).men, a(state).gear], [3, 0]);
+  state = turn(state);
+  assert.deepEqual([a(state).men, a(state).gear], [2, 0]);
+  assert.equal(a(turn(surrounded(0))).men, 3, 'with no gear a man is lost straight away');
 });

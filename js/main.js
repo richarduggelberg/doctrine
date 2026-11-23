@@ -1,8 +1,8 @@
 import {
   applyPool, applyToStack, attack, breakScore, cardIssue, cardText, chooseMode, createGame, discardCard,
-  doctrineLevel, eligibleStacks, endOrder, endTurn, getStack, inEnemyZoc, isCutOff, isDirectOrder, isFace, legalAttacks,
+  doctrineLevel, eligibleStacks, endOrder, endTurn, getStack, inEnemyZoc, isCutOff, isDirectOrder,   isFace, legalAttacks,
   legalMerges, legalMoves, legalSplits, mergeStacks, moveStack, maxBonus, needsTarget, orderInfo, pairIssue, playCard,
-  rankLabel, resolveHold, resolveRetreat, retreatOptions, splitStack, strength, terrainBonus, featuresAt,
+  rankLabel, resolveHold, resolveRetreat, retreatOptions, splitStack, strength, terrainBonus, featuresAt, townsLost,
 } from './engine.js';
 import { renderBoard } from './render.js';
 
@@ -140,7 +140,7 @@ function drawInfo() {
     `${stack.id}${stack.army ? ` (${stack.army})` : ''}: ${stack.men} men chips${state.menPerChip ? ` (~${(stack.men * state.menPerChip).toLocaleString('en-US')} soldiers)` : ''} + ${stack.gear} gear on ${describeTerrain(stack.col, stack.row)} ` +
       `(${stack.col},${stack.row}). Defends at ${strength(state, stack, true)}.` +
       `${stack.fought ? ' Fought this turn: cannot walk.' : stack.halted ? ' Halted in an enemy zone.' : stack.moved ? ` Walked ${stack.moved} hex(es) this turn.` : ''}` +
-      `${isCutOff(state, stack) ? ' CUT OFF: no supply path home, it can do nothing.' : ''}`,
+      `${isCutOff(state, stack) ? ' SURROUNDED: no supply path home, it can do nothing and bleeds a gear chip, then a man, every turn.' : ''}`,
   ];
   for (const target of legalAttacks(state, stack.id)) {
     lines.push(`Attack ${target.id}: ${strength(state, stack, false) + bonusChoice} vs ${strength(state, target, true)} (a tie is a stalemate)`);
@@ -164,7 +164,9 @@ function drawStatus() {
     `Discard: ${state.discardUsed ? 'used' : 'available'} | Deck: ${state.decks[state.current].length} | ` +
     `Player ${other} holds ${state.hands[other].length} cards | ` +
     `Break score A ${breakScore(state, 'A')}, B ${breakScore(state, 'B')} (thresholds hidden) | ` +
-    `Weariness A ${state.weariness.A}, B ${state.weariness.B}` +
+    `Weariness A ${state.weariness.A}, B ${state.weariness.B} | ` +
+    `Exhaustion A ${state.exhaustion.A}, B ${state.exhaustion.B} | ` +
+    `Towns lost: A ${townsLost(state, 'A').length}, B ${townsLost(state, 'B').length}` +
     ['A', 'B'].filter((p) => state.siege[p]).map((p) => ` | ${p} holds the enemy capital: wins if it survives the enemy turn`).join('');
 }
 

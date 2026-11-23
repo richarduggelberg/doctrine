@@ -185,9 +185,35 @@ const PLACES = [
   ['Lille', 3.06, 50.63, ['city']], ['Amiens', 2.3, 49.9, ['city']], ['Reims', 4.03, 49.26, ['city']],
   ['Arras', 2.78, 50.29, ['city']], ['Sedan', 4.94, 49.7, ['city']], ['Luxembourg', 6.13, 49.61, ['city']],
   ['Nancy', 6.18, 48.69, ['city']], ['Aachen', 6.08, 50.78, ['city']], ['Dunkirk', 2.37, 51.04, ['city']],
-  ['Charleroi', 4.44, 50.41, ['city']], ['Ghent', 3.72, 51.05, ['city']], ['Mons', 3.95, 50.45, ['city']],
+  ['Charleroi', 4.44, 50.41, ['city']], ['Ghent', 3.72, 51.05, ['city']], ['Mons', 3.92, 50.52, ['city']],
   ['Cambrai', 3.24, 50.17, ['city']], ['Ypres', 2.88, 50.85, []], ['Noyon', 2.99, 49.58, []],
   ['Epinal', 6.45, 48.18, ['fortress']], ['Troyes', 4.08, 48.3, ['city']], ['Colmar', 7.36, 48.08, ['city']],
+  // More cities (+1 defence) ...
+  ['Calais', 1.86, 50.95, ['city']], ['Valenciennes', 3.52, 50.36, ['city']], ['Douai', 3.08, 50.37, ['city']],
+  ['Bethune', 2.64, 50.53, ['city']], ['Tournai', 3.39, 50.61, ['city']], ['Courtrai', 3.27, 50.83, ['city']],
+  ['Bruges', 3.22, 51.21, ['city']], ['Leuven', 4.7, 50.88, ['city']], ['Mechelen', 4.48, 51.03, ['city']],
+  ['Maastricht', 5.69, 50.85, ['city']], ['Hasselt', 5.34, 50.93, ['city']], ['Dinant', 4.91, 50.26, ['city']],
+  ['Charleville', 4.72, 49.77, ['city']], ['Laon', 3.62, 49.56, ['city']], ['Soissons', 3.33, 49.38, ['city']],
+  ['St-Quentin', 3.29, 49.85, ['city']], ['Compiegne', 2.83, 49.42, ['city']], ['Chalons', 4.37, 48.96, ['city']],
+  ['Epernay', 3.95, 49.04, ['city']], ['Bar-le-Duc', 5.16, 48.77, ['city']], ['Luneville', 6.5, 48.59, ['city']],
+  ['Chaumont', 5.14, 48.11, ['city']], ['Meaux', 2.88, 48.96, ['city']], ['Beauvais', 2.08, 49.43, ['city']],
+  ['Sens', 3.28, 48.2, ['city']], ['Dusseldorf', 6.78, 51.23, ['city']], ['Duisburg', 6.76, 51.43, ['city']],
+  ['Bonn', 7.1, 50.73, ['city']], ['Koblenz', 7.6, 50.36, ['city']], ['Trier', 6.64, 49.75, ['city']],
+  ['Saarbrucken', 7.0, 49.23, ['city']], ['Dortmund', 7.47, 51.51, ['city']], ['Wuppertal', 7.2, 51.26, ['city']],
+  ['Kaiserslautern', 7.77, 49.44, ['city']], ['Duren', 6.48, 50.8, ['city']], ['Krefeld', 6.56, 51.33, ['city']],
+  ['Saverne', 7.36, 48.74, ['city']], ['Selestat', 7.45, 48.26, ['city']], ['Haguenau', 7.79, 48.82, ['city']],
+  // ... and small towns (no defence bonus, but holding or losing them counts).
+  ['Hazebrouck', 2.54, 50.72, []], ['Armentieres', 2.88, 50.69, []], ['St-Omer', 2.25, 50.75, []],
+  ['Ostend', 2.92, 51.23, []], ['Peronne', 2.93, 49.93, []], ['Albert', 2.65, 50.0, []], ['Bapaume', 2.85, 50.1, []],
+  ['Montdidier', 2.57, 49.65, []], ['Chauny', 3.22, 49.62, []], ['Vouziers', 4.7, 49.4, []],
+  ['Ste-Menehould', 4.9, 49.09, []], ['St-Mihiel', 5.54, 48.88, []], ['Pont-a-Mousson', 6.05, 48.9, []],
+  ['Longwy', 5.76, 49.52, []], ['Bastogne', 5.72, 50.0, []], ['Verviers', 5.86, 50.59, []],
+  ['Chateau-Thierry', 3.4, 49.04, []], ['Provins', 3.3, 48.56, []], ['Vitry', 4.58, 48.72, []],
+  ['St-Avold', 6.7, 49.1, []], ['Neufchateau', 5.7, 48.35, []], ['St-Die', 6.95, 48.29, []],
+  ['Bitburg', 6.5, 49.97, []], ['Euskirchen', 6.79, 50.66, []], ['Mayen', 7.22, 50.33, []],
+  ['Roermond', 5.99, 51.19, []], ['Heerlen', 5.98, 50.89, []], ['Wesel', 6.62, 51.66, []],
+  ['Sarreguemines', 7.07, 49.11, []], ['Zweibrucken', 7.37, 49.25, []], ['Tienen', 4.94, 50.81, []],
+  ['Mirecourt', 6.13, 48.3, []], ['Arlon', 5.81, 49.68, []],
 ];
 const CAPITALS = { A: 'Paris', B: 'Cologne' };
 
@@ -301,9 +327,14 @@ for (const [name, lon, lat, mods] of PLACES) {
   if (h.d > HEX_KM) continue; // off the map
   const k = key(h.col, h.row);
   if (sea.has(k)) continue;
+  if (places.some((p) => p.col === h.col && p.row === h.row)) {
+    console.error(`skipped ${name}: its hex already holds ${places.find((p) => p.col === h.col && p.row === h.row).name}`);
+    continue;
+  }
   cityOf[k] = [...new Set([...(cityOf[k] ?? []), ...mods])];
   if (cityOf[k].includes('bigcity')) cityOf[k] = cityOf[k].filter((m) => m !== 'city');
-  places.push({ name, col: h.col, row: h.row });
+  const size = mods.some((m) => m === 'bigcity' || m === 'fortress') ? 'big' : mods.includes('city') ? 'city' : 'town';
+  places.push({ name, col: h.col, row: h.row, size });
 }
 
 const terrain = {};

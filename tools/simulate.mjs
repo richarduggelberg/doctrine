@@ -13,6 +13,8 @@ const config = read('../data/cards.json');
 // Tuning knobs for experiments: THRESH=min,max  MIRROR=1 gives both nations the doctrine of A.
 if (process.env.THRESH) [config.surrender.thresholdMin, config.surrender.thresholdMax] = process.env.THRESH.split(',').map(Number);
 if (process.env.MIRROR) config.doctrine.B = structuredClone(config.doctrine.A);
+// TOWNW=small,big overrides the exhaustion a lost town costs each turn.
+if (process.env.TOWNW) [config.surrender.townWeight, config.surrender.bigTownWeight] = process.env.TOWNW.split(',').map(Number);
 // DOCB=aggressive:1,defensive:3,... overrides nation B's doctrine cards.
 if (process.env.DOCB) {
   config.doctrine.B.cards = Object.fromEntries(process.env.DOCB.split(',').map((p) => [p.split(':')[0], Number(p.split(':')[1])]));

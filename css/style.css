@@ -59,6 +59,14 @@ aside h2:first-child { margin-top: 0; }
 .hex.sea { fill: #43617b; stroke: #0004; pointer-events: none; }
 .hex.target { fill: #d8c35a; cursor: pointer; }
 .place { font-size: 19px; font-weight: 700; fill: #111; pointer-events: none; paint-order: stroke; stroke: #fff; stroke-width: 5px; stroke-linejoin: round; }
+.place.city { font-size: 17px; }
+.place.town { font-size: 14px; font-weight: 600; stroke-width: 4px; }
+.occupied { fill: none; stroke-width: 4; stroke-dasharray: 7 4; pointer-events: none; }
+.occupied.owner-A { stroke: var(--a); }
+.occupied.owner-B { stroke: var(--b); }
+.flag { font-size: 22px; pointer-events: none; stroke: #fff; stroke-width: 1.5px; paint-order: stroke; }
+.flag.owner-A { fill: var(--a); }
+.flag.owner-B { fill: var(--b); }
 .country { font-size: 28px; font-weight: 800; letter-spacing: 6px; fill: #111; fill-opacity: .75; pointer-events: none; paint-order: stroke; stroke: #fff; stroke-opacity: .8; stroke-width: 5px; stroke-linejoin: round; }
 .river { fill: none; stroke: #6f96ba; stroke-width: 4; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
 .river.big { stroke: #4a6ea0; stroke-width: 9; }

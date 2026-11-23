@@ -64,7 +64,15 @@ export function renderBoard(svg, state, view) {
 
   for (const place of scenery.places) {
     const { x, y } = center(place.col, place.row, SIZE);
-    parts.push(`<text class="place" x="${x}" y="${y - SIZE * 0.62}" text-anchor="middle">${place.name}</text>`);
+    parts.push(`<text class="place ${place.size ?? 'city'}" x="${x}" y="${y - SIZE * 0.62}" text-anchor="middle">${place.name}</text>`);
+  }
+
+  // A town in enemy hands is outlined in its captor's colour and carries a flag.
+  for (const town of state.towns) {
+    if (!town.home || town.holder === town.home) continue;
+    const { x, y } = center(town.col, town.row, SIZE);
+    parts.push(`<polygon class="occupied owner-${town.holder}" points="${corners(x, y, SIZE - 3)}"/>`);
+    parts.push(`<text class="flag owner-${town.holder}" x="${x - SIZE * 0.5}" y="${y + SIZE * 0.45}" text-anchor="middle">⚑</text>`);
   }
 
   for (const [owner, cap] of Object.entries(state.capitals)) {
