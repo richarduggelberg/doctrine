@@ -1,6 +1,7 @@
 {
-  "handSize": 5,
-  "cardsPerTurn": 2,
+  "handSize": 7,
+  "startHand": 4,
+  "drawPerTurn": 2,
   "move": 2,
   "symbols": {
     "aggressive": "♠",
@@ -42,14 +43,13 @@
       "kind": "defend",
       "points": [1, 2, 2, 3, 4, 4],
       "limit": [1, 2, 2, 3, 3, 3],
-      "braceAmount": 1,
-      "menu": { "trench": 1, "brace": 1 },
-      "text": "{points} points: a trench chip (+1 defence, max {limit} per hex) or +{braceAmount} defence until your next turn, on a stack.",
+      "menu": { "trench": 1 },
+      "text": "{points} points: a trench chip (+1 defence, max {limit} per hex) on a stack.",
       "faces": {
         "J": { "name": "Elastic defence", "fx": { "elastic": true }, "text": "Your retreats are free until your next turn." },
-        "Q": { "name": "Reserves", "fx": { "posture": 1 }, "text": "All your stacks get +1 defence until your next turn." },
-        "K": { "name": "Iron wall", "fx": { "braceAmount": 2, "limitBonus": 1 }, "text": "Bracing gives +2, trenches may be one deeper." },
-        "A": { "name": "Hold the line", "fx": { "elastic": true, "posture": 1, "braceAmount": 2, "limitBonus": 1 }, "text": "Elastic defence, +1 defence for all, bracing +2, deeper trenches." }
+        "Q": { "name": "Reserves", "fx": { "entrench": true }, "text": "Every stack facing the enemy gets a free trench chip." },
+        "K": { "name": "Iron wall", "fx": { "bonusPoints": 1, "limitBonus": 1 }, "text": "+1 point, and trenches may be one deeper." },
+        "A": { "name": "Hold the line", "fx": { "elastic": true, "entrench": true, "bonusPoints": 1, "limitBonus": 1 }, "text": "Elastic defence, a free chip on every stack facing the enemy, +1 point, deeper trenches." }
       }
     },
     "reorganizational": {

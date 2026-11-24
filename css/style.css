@@ -72,6 +72,10 @@ aside h2:first-child { margin-top: 0; }
 .river.big { stroke: #4a6ea0; stroke-width: 9; }
 .zoc { fill: #e0402e; fill-opacity: .16; pointer-events: none; }
 .swatch.zoc { background: #e0402e55; }
+.front { fill: none; stroke-width: 4; stroke-linecap: round; pointer-events: none; }
+.front-A { stroke: #ff5a45; }
+.front-B { stroke: #4d9bff; }
+.swatch.front { background: linear-gradient(90deg, #ff5a45 50%, #4d9bff 50%); height: .4rem; }
 .swatch.terrain { background: #846f50; border-radius: 50%; }
 .swatch.trench { background: #434343; border-radius: 50%; }
 .swatch.rough { background: #697250; }
@@ -110,7 +114,6 @@ aside h2:first-child { margin-top: 0; }
 .stack .halo { fill: none; stroke: none; }
 .stack.eligible .halo { stroke: #7fd1ff; stroke-width: 2.5; stroke-dasharray: 2 3; }
 .stack.movable .halo { stroke: #fff; stroke-opacity: .55; stroke-width: 1.5; stroke-dasharray: 1 4; }
-.stack.braced .chip { stroke: #fff; stroke-width: 1.5; }
 .stack.selected .halo { stroke: #fff; stroke-width: 2.5; stroke-dasharray: none; }
 .stack.attackable .halo { stroke: #ff3b30; stroke-width: 3; stroke-dasharray: 5 3; }
 .stack.mergeable .halo { stroke: #34c759; stroke-width: 3; stroke-dasharray: 5 3; }
@@ -159,8 +162,11 @@ aside h2:first-child { margin-top: 0; }
 .card.suit-defensive { border-color: #2e6fbf; }
 .card.suit-reorganizational { border-color: #b8860b; }
 .card.suit-willingness { border-color: #2e8b57; }
-.discard, .pair { font-size: .75rem; padding: .15rem .4rem; }
-.discard:disabled, .pair:disabled { opacity: .4; cursor: not-allowed; }
+.card-actions { display: flex; flex-wrap: wrap; gap: .2rem; }
+.discard, .pair, .improvise { font-size: .75rem; padding: .15rem .4rem; }
+.discard:disabled, .pair:disabled, .improvise:disabled { opacity: .4; cursor: not-allowed; }
+#improvise { padding: .3rem .5rem; }
+#improvise[hidden] { display: none; }
 .hand-title { padding: .3rem .5rem 0; font-size: .85rem; text-transform: uppercase; letter-spacing: .08em; opacity: .7; }
 
 #over { position: fixed; inset: 0; background: #000b; display: flex; align-items: center; justify-content: center; z-index: 10; }

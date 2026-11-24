@@ -781,7 +781,7 @@ M10 - PLAYING CARDS, TIERS, LONGER WALKS (supersedes M3 deck, M9 items 2, 3, 7,
   Decisions confirmed by the designer; numbers are playtest guesses.
   1. DECKS: one standard 52-card deck per player, no jokers. Ranks 2-10, J, Q,
      K, Ace (high). A spent deck is refilled from that player's own discards.
-     Hand 5, two plays per turn, one free discard per turn.
+     Hand 7 (was 5, see item 17), two plays per turn, one free discard per turn.
   2. SUITS (fixed function): spades = Offensive (the only way to attack),
      clubs = Defence, diamonds = Logistics, hearts = Home Front. Each suit is
      tied to one doctrine suit (aggressive, defensive, reorganizational,
@@ -801,8 +801,9 @@ M10 - PLAYING CARDS, TIERS, LONGER WALKS (supersedes M3 deck, M9 items 2, 3, 7,
                  Q Combined arms (extra attacks cost 1 point)
                  K No quarter (a beaten defender cannot retreat)
                  A Breakthrough (loser -1 man more)
-       Clubs     J Elastic defence   Q Reserves (+1 defence, all stacks)
-                 K Iron wall (brace +2, trench limit +1)   A all of these
+       Clubs     J Elastic defence   Q Reserves (free trench chip on every
+                 stack facing the enemy)
+                 K Iron wall (+1 point, trench limit +1)   A all of these
        Diamonds  J Rail net (+3 hexes)   Q Staff work (+2 points)
                  K Depots (rally costs 1, limit +1)        A all of these
        Hearts    J War bonds (relief 2)            Q Relief effort (relief 3)
@@ -919,7 +920,50 @@ M10 - PLAYING CARDS, TIERS, LONGER WALKS (supersedes M3 deck, M9 items 2, 3, 7,
   - Simulation (40 games each): off A 22 / B 18, ~15.6 rounds; 1/2 A 19 /
     B 21, ~17.1 rounds; 1/1 A 20 / B 20, ~16.7 rounds. Balance is unchanged
     and games run a little longer. Not done yet: flank exposure, linked
-    trenches, blocking zones of control, drawing the front line on the map.
-
-
-
+    trenches, blocking zones of control (the front line is now drawn, see 17).
+ 17. BIGGER HAND, IMPROVISING, NO BRACE, FRONT LINE (supersedes the hand of 5
+     in item 1 and every "brace" / "Posture" rule: Defence menu, Iron wall's
+     bracing, the brace upkeep of M7-M9).
+  - Hand size is 7 (`handSize`). A 5-card hand had no spade 22% of the time,
+    a 7-card hand 11.5%, so players are less often stuck with the wrong suit.
+    The turn is unchanged: two plays and one free discard.
+  - IMPROVISE: discard any two cards of the same suit (any ranks, faces
+    included, their abilities are lost) to play a plain rank-2 order of any
+    suit. It uses ONE play and not the free discard. Rank 2 is tier 0 and the
+    doctrine shift of the chosen suit still applies. Cancelling an unused
+    improvised order returns both cards and the play. The hand title and an
+    order picker in the UI walk the player through it: Improvise on a card,
+    pick the second card, pick the order.
+  - BRACE IS GONE: stacks no longer carry a temporary defence bonus, so there
+    is no per-turn upkeep. Defence points now buy only trench chips. Reserves
+    (Q) gives every non-surrounded stack that touches an enemy stack one free
+    trench chip (up to the order's limit) the moment it is played. Iron wall
+    (K) is +1 point and one deeper trenches. Hold the line (A) is Elastic
+    defence + the Reserves effect + Iron wall's bonuses. Cards whose effect
+    happens on play (Elastic, Reserves) cannot be cancelled for a refund.
+  - FRONT LINE: every land hex belongs to the side whose nearest stack is
+    nearer (`frontOwners`); equidistant hexes belong to nobody (no man's
+    land). The map draws, in each side's colour, the edges between its hexes
+    and the other side's or no man's land, pulled slightly inward so the two
+    lines run side by side. The header toggle "Show front line" hides it. It
+    is purely a display aid: no rule depends on it.
+  - Simulation (40 games): A 21 / B 19, ~17.6 rounds, casualties A 45 / B 35.
+    Bots that improvise change nothing measurable (A 21 / B 19 either way).
+    Needs human playtests.
+18. CARD BANK: NO PLAY CAP (supersedes "two plays per turn" in items 12 and 17)
+  - There is no limit on orders per turn. The hand is a bank: it starts at
+    `startHand` 4, gains `drawPerTurn` 2 cards at the end of each turn, and
+    never exceeds `handSize` 7 (draws beyond the cap are lost, so hoarding
+    stops at 7). Saving cards builds a big offensive; a pair or an improvise
+    costs two cards, i.e. a turn's income.
+  - There is no free discard any more: a player may discard any number of
+    cards from the hand at any time, but it does nothing (no replacement, no
+    effect). It only makes room under the cap and thins the deck's turnover.
+    The bots throw away cards no stack can use.
+  - `cardsPerTurn` is gone; `state.played` just counts the orders played this
+    turn (shown as "Orders played"). The bots play up to 8 orders a turn
+    (MAX_ORDERS) and always spend what they can.
+  - Simulation (40 games): A 21 / B 19, ~17.5 rounds, casualties A 44 / B 35.
+    Bots never bank, so this says little about the hoarding tension.
+    Needs human playtests; watch for the opening turns (4 cards each) and
+    for quiet fronts that the exhaustion tick alone has to end.

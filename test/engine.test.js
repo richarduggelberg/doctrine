@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   applyPool, applyToStack, attack, breakScore, cardIssue, chooseMode, countryAt, createGame, discardCard, eligibleStacks, endOrder,
-  endTurn, featuresAt, fortification, inBounds, inEnemyZoc, isCutOff, legalAttacks, legalMerges, legalMoves, legalSplits,
+  endTurn, featuresAt, fortification, frontOwners, improvise, improviseIssue, inBounds, inEnemyZoc, isCutOff, legalAttacks, legalMerges, legalMoves, legalSplits,
   maxBonus, mergeStacks, moveStack, orderTier, pairIssue, playCard, resolveHold, resolveRetreat, retreatOptions, shell, shellCost,
   shellTargets, splitStack, placeRecruit, recruitSites, recruitsFor,
   stackAt, strength, support, terrainAt, terrainBonus, territoryOf, townsLost,
@@ -77,7 +77,7 @@ function gapDuel(a, b) {
 // A duel where B has a second stack far away, so destroying B1 does not end the game.
 function duelWithReserve(a, b) {
   const state = duel(a, b);
-  state.stacks.push({ id: 'B9', owner: 'B', col: 6, row: 0, men: 3, gear: 0, braced: 0, spent: false });
+  state.stacks.push({ id: 'B9', owner: 'B', col: 6, row: 0,   men: 3, gear: 0, spent: false });
   return state;
 }
 
@@ -92,14 +92,14 @@ test('neighbor relation is symmetric and distance matches adjacency', () => {
   }
 });
 
-test('setup: 1914 armies, 5-card hands, and a seeded 52-card deck per player without jokers', () => {
+test('setup: 1914 armies, full hands, and a seeded 52-card deck per player without jokers', () => {
   const state = createGame(map, config, 42);
   const count = (owner) => state.stacks.filter((s) => s.owner === owner).length;
   assert.ok(count('A') >= 4 && count('B') >= 4);
   assert.equal(new Set(state.stacks.map((s) => `${s.col},${s.row}`)).size, state.stacks.length);
   for (const s of state.stacks) assert.ok(inBounds(state, s.col, s.row));
   for (const p of ['A', 'B']) {
-    assert.equal(state.hands[p].length, 5);
+    assert.equal(state.hands[p].length, config.startHand);
     const cards = [...state.decks[p], ...state.hands[p]];
     assert.equal(cards.length, 52);
     assert.equal(new Set(cards.map((c) => c.uid)).size, 52);
@@ -148,22 +148,19 @@ test('rank bands and the doctrine shift set the tier; doctrine can lift a card a
   assert.equal(play(setDoctrine(state, 'A', { aggressive: 9 }), 'S', 9).active.points, 4, 'level is capped');
 });
 
-test('two same-suit number cards played as a pair are worth their sum, plus a tier, and use both plays', () => {
+test('two same-suit number cards played as a pair are worth their sum, plus a tier', () => {
   const state = duel(3, 3);
   assert.equal(orderTier(state, 'A', 'aggressive', [2, 3]), 3);
   assert.equal(orderTier(state, 'A', 'aggressive', [9, 10]), 5);
   const pair = playPair(state, 'S', 2, 3);
   assert.equal(pair.active.points, 4, 'a 2 and a 3 beat either card alone (2 points)');
-  assert.equal(pair.played, 2);
+  assert.equal(pair.played, 1, 'one order');
   const mixed = give(give(state, 'S', 2), 'C', 3);
   const hand = mixed.hands.A;
   assert.match(pairIssue(mixed, hand.at(-2), hand.at(-1)), /same suit/);
   assert.throws(() => playCard(mixed, hand.at(-2).uid, hand.at(-1).uid));
   const faces = give(give(state, 'S', 11), 'S', 4);
   assert.match(pairIssue(faces, faces.hands.A.at(-2), faces.hands.A.at(-1)), /cannot be paired/);
-  const used = give(give(state, 'S', 2), 'S', 3);
-  used.played = 1;
-  assert.match(pairIssue(used, used.hands.A.at(-2), used.hands.A.at(-1)), /plays left/);
 });
 
 test('face cards add abilities: Offensive Surprise, No quarter and Breakthrough', () => {
@@ -194,8 +191,9 @@ test('face cards add abilities: Offensive Surprise, No quarter and Breakthrough'
 test('face cards add abilities for the other suits', () => {
   const b = endTurn(duel(3, 3)); // Player B: 3 defensive (+1), 2 willingness (0), 1 reorganizational (-1)
   assert.equal(play(b, 'C', 11).elastic.B, true, 'Elastic defence at once');
-  assert.ok(play(b, 'C', 12).stacks.filter((s) => s.owner === 'B').every((s) => s.braced === 1), 'Reserves');
-  assert.equal(applyToStack(chooseMode(play(b, 'C', 13), 'brace'), 'B1').stacks[1].braced, 2, 'Iron wall braces by 2');
+  assert.ok(play(b, 'C', 12).defense['2,2'] === 1, 'Reserves entrenches the stack facing the enemy');
+  const wall = play(b, 'C', 13).active;
+  assert.deepEqual([wall.values.points, wall.values.limit], [5, 4], 'Iron wall: +1 point, one deeper trenches');
   assert.equal(applyToStack(chooseMode(play(duel(3, 3), 'D', 11), 'rail'), 'A1').stacks[0].rail, 3, 'Rail net');
   assert.equal(play(duel(3, 3), 'D', 12).active.points, 5, 'Staff work: 3 points + 2');
   const tired = structuredClone(b);
@@ -269,10 +267,11 @@ test('Rail adds hexes to a stack\'s walk', () => {
   assert.deepEqual(legalMoves(state, 'A1'), []);
 });
 
-test('only two cards can be played per turn', () => {
-  const state = give(duel(3, 3), 'S', 5);
-  state.played = 2;
-  assert.match(cardIssue(state, state.hands.A.at(-1)), /plays left/);
+test('plays per turn are not capped: every card in hand can be played', () => {
+  let state = duel(3, 3);
+  for (let i = 0; i < 4; i++) state = give(state, 'S', 5);
+  state.played = 6;
+  assert.equal(cardIssue(state, state.hands.A.at(-1)), null);
 });
 
 test('cancelling an unused order refunds the card and the play', () => {
@@ -284,7 +283,7 @@ test('cancelling an unused order refunds the card and the play', () => {
   assert.ok(cancelled.hands.A.some((c) => c.rank === 5 && c.suit === 'aggressive'));
 });
 
-test('terrain, trenches and bracing add to defense; a tie is a stalemate with attrition only', () => {
+test('terrain and trenches add to defense; a tie is a stalemate with attrition only', () => {
   const tie = fight(3, 3);
   assert.equal(tie.pending, null);
   assert.deepEqual(tie.stacks.map((s) => [s.men, s.col]), [[2, 1], [2, 2]]);
@@ -292,10 +291,9 @@ test('terrain, trenches and bracing add to defense; a tie is a stalemate with at
   const rough = duel(4, 3, { '2,2': 'rough' });
   assert.equal(strength(rough, rough.stacks[1], true), 4);
   assert.equal(attack(bare(rough), 'A1', 'B1').pending, null);
-  const braced = structuredClone(duel(4, 3));
-  braced.stacks[1].braced = 1;
-  braced.defense['2,2'] = 2;
-  assert.equal(strength(braced, braced.stacks[1], true), 6);
+  const trenched = structuredClone(duel(4, 3));
+  trenched.defense['2,2'] = 2;
+  assert.equal(strength(trenched, trenched.stacks[1], true), 5);
 });
 
 test('a defender is backed by adjacent friendly stacks, up to the cap, and only by friends', () => {
@@ -304,7 +302,7 @@ test('a defender is backed by adjacent friendly stacks, up to the cap, and only 
   assert.equal(support(state, b1), 0);
   const withNeighbours = (extra) => {
     const next = structuredClone(state);
-    for (const [col, row] of extra) next.stacks.push({ id: `X${col}${row}`, owner: 'B', col, row, men: 2, gear: 0, braced: 0 });
+    for (const [col, row] of extra) next.stacks.push({ id: `X${col}${row}`, owner: 'B', col, row, men: 2, gear: 0 });
     return next;
   };
   const one = withNeighbours([[3, 2]]);
@@ -463,15 +461,70 @@ test('Defence spends points on trench chips up to the doctrine limit per hex, or
   assert.deepEqual(eligibleStacks(lowLevel), []);
 });
 
-test('Bracing lasts until its owner next turn; moving removes it', () => {
-  let state = applyToStack(chooseMode(play(duel(3, 3), 'C', 2), 'brace'), 'A1');
-  assert.equal(state.stacks[0].braced, 1);
-  state = endTurn(state);
-  assert.equal(state.stacks[0].braced, 1);
-  state = endTurn(state);
-  assert.equal(state.stacks[0].braced, 0);
-  const braced = applyToStack(chooseMode(play(duel(3, 3), 'C', 2), 'brace'), 'A1');
-  assert.equal(moveStack(braced, 'A1', 0, 2).stacks[0].braced, 0);
+test('Reserves gives every stack facing the enemy a free trench chip, up to the limit', () => {
+  const b = endTurn(duel(3, 3));
+  const far = structuredClone(b);
+  far.stacks.push({ id: 'B8', owner: 'B', col: 6, row: 0, men: 2, gear: 0 });
+  const reserves = play(far, 'C', 12);
+  assert.equal(reserves.defense['2,2'], 1, 'B1 faces A1');
+  assert.equal(reserves.defense['6,0'], undefined, 'B8 does not face anyone');
+  assert.equal(reserves.active.acted, true, 'the effect is spent, so it cannot be cancelled for a refund');
+  const full = structuredClone(far);
+  full.defense['2,2'] = 4;
+  assert.equal(play(full, 'C', 12).defense['2,2'], 4, 'the hex is at the limit');
+});
+
+test('improvising: two same-suit cards make one rank-2 order of any suit', () => {
+  const given = give(give(duel(3, 3), 'C', 13), 'C', 9);
+  const [k, nine] = given.hands.A.slice(-2);
+  const spy = improvise(given, k.uid, nine.uid, 'aggressive');
+  assert.equal(spy.played, 1, 'one play');
+  assert.equal(spy.active.kind, 'attack');
+  assert.equal(spy.active.points, 2, 'a rank 2 is tier 0, lifted to tier 1 by the level-3 offensive doctrine');
+  assert.equal(spy.hands.A.some((c) => c.uid === k.uid || c.uid === nine.uid), false);
+  assert.equal(spy.active.name, 'Offensive', 'no face ability is carried over');
+  assert.equal(spy.active.suit, 'aggressive');
+  const done = endOrder(spy);
+  assert.equal(done.played, 0, 'cancelling refunds the play');
+  assert.ok(done.hands.A.some((c) => c.uid === k.uid) && done.hands.A.some((c) => c.uid === nine.uid), 'and returns both cards');
+  assert.equal(improvise(given, k.uid, nine.uid, 'defensive').played, 1, 'any suit can be chosen');
+});
+
+test('improvising follows the usual rules', () => {
+  const mixed = give(give(duel(3, 3), 'C', 5), 'S', 6);
+  const [x, y] = mixed.hands.A.slice(-2);
+  assert.match(improviseIssue(mixed, x, y, 'aggressive'), /same suit/);
+  assert.throws(() => improvise(mixed, x.uid, y.uid, 'aggressive'));
+  const pair = give(give(duel(3, 3), 'C', 5), 'C', 6);
+  const [p, q] = pair.hands.A.slice(-2);
+  assert.match(improviseIssue(pair, p, p, 'aggressive'), /different/);
+  const noTarget = structuredClone(pair);
+  noTarget.stacks[0].col = 0; // out of reach of every enemy stack
+  assert.match(improviseIssue(noTarget, p, q, 'aggressive'), /No stack/);
+  assert.equal(improviseIssue(noTarget, p, q, 'defensive'), null);
+  // The doctrine shift of the chosen suit applies: Player A's level-3 offensive lifts a rank 2 one tier.
+  const strong = improvise(pair, p.uid, q.uid, 'aggressive');
+  const weak = improvise(setDoctrine(pair, 'A', { aggressive: 0 }), p.uid, q.uid, 'aggressive');
+  assert.equal(strong.active.points, 2);
+  assert.equal(weak.active.points, 0);
+});
+
+test('the front line gives each hex to the nearer side, and none to equidistant hexes', () => {
+  const state = gapDuel(3, 3); // A1 at (1,2), B1 at (4,2)
+  const owners = frontOwners(state);
+  assert.equal(owners['1,2'], 'A');
+  assert.equal(owners['4,2'], 'B');
+  assert.equal(owners['0,2'], 'A');
+  assert.equal(owners['6,2'], 'B');
+  for (const [hex, owner] of Object.entries(owners)) {
+    const [col, row] = hex.split(',').map(Number);
+    const [a, b] = [state.stacks[0], state.stacks[1]].map((s) => distance(s, { col, row }));
+    assert.equal(owner, a < b ? 'A' : b < a ? 'B' : null);
+  }
+  assert.ok(Object.values(owners).includes(null), 'there is a no-man\'s-land');
+  const alone = structuredClone(state);
+  alone.stacks = alone.stacks.filter((s) => s.owner === 'A');
+  assert.deepEqual(frontOwners(alone), {}, 'no front without an enemy');
 });
 
 test('Logistics: merge and split cost 1 point each, rally 2; level sets the pool', () => {
@@ -540,36 +593,48 @@ test('Home Front: relief and recruits scale with doctrine', () => {
   assert.equal(play(setDoctrine(state, 'B', { willingness: 0 }), 'H', 5).active.points, 2);
 });
 
-test('ending a turn refills the hand, resets plays and switches player', () => {
+test('ending a turn draws drawPerTurn cards up to the hand cap, and switches player', () => {
   let state = createGame(map, config, 7);
-  state = discardCard(state, state.hands.A[0].uid);
-  assert.equal(state.hands.A.length, 4);
-  assert.throws(() => discardCard(state, state.hands.A[0].uid));
+  assert.equal(state.hands.A.length, config.startHand);
   state = endTurn(state);
   assert.equal(state.current, 'B');
-  assert.equal(state.hands.A.length, 5);
+  assert.equal(state.hands.A.length, config.startHand + config.drawPerTurn);
   assert.equal(state.played, 0);
-  assert.equal(state.discardUsed, false);
   state = endTurn(state);
   assert.equal(state.current, 'A');
   assert.equal(state.turn, 2);
+  for (let i = 0; i < 6; i++) state = endTurn(state);
+  assert.equal(state.hands.A.length, config.handSize, 'the hand is capped');
+});
+
+test('discarding is unlimited and does nothing: no card comes back in its place', () => {
+  let state = createGame(map, config, 7);
+  const first = state.hands.A[0];
+  state = discardCard(state, first.uid);
+  assert.equal(state.hands.A.length, config.startHand - 1);
+  assert.ok(!state.hands.A.some((c) => c.uid === first.uid));
+  assert.equal(state.discards.A.at(-1).uid, first.uid);
+  assert.equal(state.played, 0, 'a discard is not an order');
+  state = discardCard(state, state.hands.A[0].uid);
+  assert.equal(state.hands.A.length, config.startHand - 2, 'as many as you like');
+  state = endTurn(state);
+  assert.equal(state.hands.A.length, config.startHand - 2 + config.drawPerTurn);
 });
 
 test('each player\'s discard pile is reshuffled into their own deck when it runs out', () => {
   let state = createGame(map, config, 3);
   state.surrender.threshold = 99999; // exhaustion grows every turn; keep the surrender check harmless
-  for (let i = 0; i < 200; i++) { // each player draws 1 card a turn from 47, so discards must be reshuffled
-    state = discardCard(state, state.hands[state.current][0].uid);
+  for (let i = 0; i < 200; i++) { // plenty of draws from 52 cards, so discards must be reshuffled
+    state.discards[state.current].push(...state.hands[state.current].splice(0));
     state = endTurn(state);
   }
   for (const p of ['A', 'B']) {
-    assert.equal(state.hands[p].length, 5);
+    assert.ok(state.hands[p].length >= 1);
     const all = [...state.decks[p], ...state.discards[p], ...state.hands[p]];
     assert.equal(new Set(all.map((c) => c.uid)).size, 52);
     assert.ok(all.every((c) => c.uid.startsWith(`${p}:`)), 'decks never mix');
   }
 });
-
 test('the exhaustion meter is casualties plus accumulated ticks, and relief cannot cut casualties', () => {
   const state = duel(3, 3);
   assert.equal(breakScore(state, 'A'), 0);
@@ -708,7 +773,7 @@ test('an enemy driven off the capital before the round ends does not win', () =>
   [a1.col, a1.row] = [state.capitals.B.col, state.capitals.B.row];
   state = endTurn(state);
   state.stacks = state.stacks.filter((s) => s.id !== 'A1');
-  state.stacks.push({ id: 'A9', owner: 'A', col: 1, row: 2, men: 3, gear: 0, braced: 0, spent: false });
+  state.stacks.push({ id: 'A9', owner: 'A', col: 1, row: 2, men: 3, gear: 0, spent: false });
   state = endTurn(state);
   assert.equal(state.over, null);
   assert.equal(state.siege.A, null);

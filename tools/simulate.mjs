@@ -2,7 +2,7 @@
 import { readFileSync } from 'node:fs';
 import {
   applyPool, applyToStack, attack, cardIssue, chooseMode, createGame, discardCard, eligibleStacks,
-  endOrder, endTurn, fortification, getStack, isFace, legalAttacks, legalMerges, legalMoves,
+  endOrder, endTurn, fortification, getStack, improvise, improviseIssue, isFace, legalAttacks, legalMerges, legalMoves,
   maxBonus, mergeStacks, moveStack, pairIssue, placeRecruit, playCard, recruitSites, resolveHold, resolveRetreat, retreatOptions, shell, shellCost,
   shellTargets, strength,
 } from '../js/engine.js';
@@ -28,6 +28,8 @@ if (process.env.DOCB) {
 const games = Number(process.argv[2] ?? 300);
 const maxTurns = Number(process.argv[3] ?? 80);
 const SLACK_PER_EXHAUSTION = Number(process.argv[4] ?? 3);
+// Orders a bot may play in one turn (the rules have no limit; the hand is the limit).
+const MAX_ORDERS = Number(process.env.MAX_ORDERS ?? 8);
 
 const enemyOf = (state) => state.stacks.filter((s) => s.owner !== state.current);
 const nearestEnemy = (state, hex) => Math.min(...enemyOf(state).map((e) => distance(hex, e)));
@@ -69,7 +71,7 @@ function poolStep(state) {
   const menu = a.menu;
   const front = (s) => isFront(state, s);
   if (a.kind === 'defend') {
-    for (const mode of ['trench', 'brace']) {
+    for (const mode of ['trench']) {
       if (a.points < menu[mode]) continue;
       const choosing = chooseMode(state, mode);
       const target = eligibleStacks(choosing)
@@ -149,12 +151,10 @@ function candidates(state) {
     .sort((a, b) => PRIORITY.indexOf(a.suit) - PRIORITY.indexOf(b.suit) || b.rank - a.rank)
     .map((c) => [c.uid]);
   const pairs = [];
-  if (state.played === 0) {
-    for (const x of hand) {
-      for (const y of hand) {
-        if (x.uid < y.uid && x.suit === y.suit && !isFace(x.rank) && !isFace(y.rank) && pairIssue(state, x, y) === null) {
-          pairs.push([x.uid, y.uid]);
-        }
+  for (const x of hand) {
+    for (const y of hand) {
+      if (x.uid < y.uid && x.suit === y.suit && !isFace(x.rank) && !isFace(y.rank) && pairIssue(state, x, y) === null) {
+        pairs.push([x.uid, y.uid]);
       }
     }
   }
@@ -170,13 +170,31 @@ function musterRecruits(state) {
   return state;
 }
 
+// Improvisations (IMPROVISE=0 turns them off): pairs of the same suit, from the suit held most, turned into any playable order.
+function improvisations(state) {
+  if (process.env.IMPROVISE === '0') return [];
+  const hand = state.hands[state.current];
+  const options = [];
+  const suits = [...new Set(hand.map((c) => c.suit))]
+    .sort((a, b) => hand.filter((c) => c.suit === b).length - hand.filter((c) => c.suit === a).length);
+  for (const from of suits) {
+    const [x, y] = hand.filter((c) => c.suit === from).sort((a, b) => a.rank - b.rank);
+    if (!y) continue;
+    for (const to of PRIORITY) if (improviseIssue(state, x, y, to) === null) options.push([x.uid, y.uid, to]);
+  }
+  return options;
+}
+
 function takeTurn(state) {
   state = freeMoves(musterRecruits(state));
-  let anyActed = false;
-  for (let guard = 0; guard < 4 && state.played < state.cardsPerTurn && !state.over; guard++) {
+  for (let guard = 0; guard < MAX_ORDERS && !state.over; guard++) {
     let acted = false;
-    for (const uids of candidates(state)) {
-      let current = playCard(state, ...uids);
+    const opens = [
+      ...candidates(state).map((uids) => (s) => playCard(s, ...uids)),
+      ...improvisations(state).map((args) => (s) => improvise(s, ...args)),
+    ];
+    for (const open of opens) {
+      let current = open(state);
       let did = !current.active;
       while (current.active && !current.over) {
         const next = act(current);
@@ -192,12 +210,12 @@ function takeTurn(state) {
       }
     }
     if (!acted) break;
-    anyActed = true;
   }
   const hand = state.hands[state.current];
-  // Nothing playable (or a dead card in hand): use the free discard so the deck keeps turning.
-  const dead = hand.find((c) => /No stack/.test(cardIssue(state, c) ?? '')) ?? (anyActed ? null : hand[0]);
-  if (dead && !state.discardUsed && !state.over) state = discardCard(state, dead.uid);
+  // Dead cards (no stack can use them) are thrown away to make room in the hand.
+  for (const dead of hand.filter((c) => /No stack/.test(cardIssue(state, c) ?? ''))) {
+    if (!state.over) state = discardCard(state, dead.uid);
+  }
   return state;
 }
 

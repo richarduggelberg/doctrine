@@ -1,5 +1,5 @@
 import { center, corners, edgeSegments, key } from './hex.js';
-import { featuresAt, inBounds, isCutOff, strength, TERRAIN_BONUS, territoryOf, countryAt } from './engine.js';
+import { featuresAt, frontOwners, inBounds, isCutOff, strength, TERRAIN_BONUS, territoryOf, countryAt } from './engine.js';
 
 const SIZE = 36;
 const CHIP_RADIUS = 21;
@@ -54,6 +54,20 @@ export function renderBoard(svg, state, view) {
         for (const [p, q] of segments) {
           parts.push(`<line class="border" x1="${p.x.toFixed(1)}" y1="${p.y.toFixed(1)}" x2="${q.x.toFixed(1)}" y2="${q.y.toFixed(1)}"/>`);
         }
+      }
+    }
+  }
+  if (view.front) {
+    // The front line: each side draws the edge of the hexes it holds that touch the other side (or no man's land),
+    // pulled a little inward so the two lines run side by side.
+    const owners = frontOwners(state);
+    for (const [hex, owner] of Object.entries(owners)) {
+      if (!owner) continue;
+      const [col, row] = hex.split(',').map(Number);
+      const c = center(col, row, SIZE);
+      const pull = (p) => `${(p.x + (c.x - p.x) * 0.1).toFixed(1)},${(p.y + (c.y - p.y) * 0.1).toFixed(1)}`;
+      for (const [p, q] of edgeSegments(col, row, SIZE, (nc, nr) => hex !== key(nc, nr) && key(nc, nr) in owners && owners[key(nc, nr)] !== owner)) {
+        parts.push(`<polyline class="front front-${owner}" points="${pull(p)} ${pull(q)}"/>`);
       }
     }
   }
@@ -113,7 +127,6 @@ export function renderBoard(svg, state, view) {
       continue;
     }
     const classes = ['stack', `owner-${stack.owner}`];
-    if (stack.braced) classes.push('braced');
     if (view.eligible.has(stack.id)) classes.push('eligible');
     if (view.movable.has(stack.id)) classes.push('movable');
     if (stack.id === view.selectedId) classes.push('selected');
@@ -122,7 +135,7 @@ export function renderBoard(svg, state, view) {
     if (stack.id === view.loserId) classes.push('loser');
     if (isCutOff(state, stack)) classes.push('cutoff');
     const topY = y + 6 - (kinds.length - 1) * thickness;
-    // Big number: strength when defending (terrain, trenches, brace included). Small: the mobile part that attacks.
+    // Big number: strength when defending (terrain, trenches and adjacent support included). Small: the mobile part that attacks.
     const defend = strength(state, stack, true);
     const offence = strength(state, stack, false);
     parts.push(

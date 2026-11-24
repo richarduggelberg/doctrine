@@ -1,6 +1,7 @@
 import {
   applyPool, applyToStack, attack, breakScore, cardIssue, cardText, chooseMode, createGame, discardCard,
-  doctrineLevel, eligibleStacks, endOrder, endTurn, getStack, inEnemyZoc, isCutOff, isDirectOrder, isFace, legalAttacks,
+  doctrineLevel, eligibleStacks, endOrder, endTurn, getStack, IMPROVISED_RANK, improvise, improviseIssue, inEnemyZoc, isCutOff,
+  isDirectOrder, isFace, legalAttacks,
   legalMerges, legalMoves, legalSplits, mergeStacks, moveStack, maxBonus, needsTarget, orderInfo, pairIssue, playCard,
   rankLabel, recruitSites, resolveHold, resolveRetreat, retreatOptions, shell, shellTargets, splitStack, strength, support, terrainBonus, featuresAt, townsLost,
   placeRecruit,
@@ -30,12 +31,12 @@ const endOrderButton = $('end-order');
 const statusLine = $('status');
 const handEl = $('hand');
 const handTitle = $('hand-title');
+const improviseEl = $('improvise');
 const overPanel = $('over');
 
 const INSTRUCTIONS = {
   attack: 'Select a highlighted stack, then click a red-dashed adjacent enemy to attack it. Shell first if you want artillery: it is paid from the same points.',
   'defend:trench': 'Click a highlighted stack to add a trench chip to its hex.',
-  'defend:brace': 'Click a highlighted stack to brace it (extra defence until it moves).',
   defend: 'Choose what to spend points on.',
   'logistics:rail': 'Click a highlighted stack: it may walk further this turn.',
   'logistics:rally': 'Click a highlighted stack to give it 1 gear.',
@@ -47,8 +48,8 @@ const INSTRUCTIONS = {
 };
 
 const MODE_LABELS = {
-  trench: 'Trench', brace: 'Brace', rail: 'Rail', rally: 'Rally +1 gear', merge: 'Merge', split: 'Split',
-  propaganda: 'Propaganda', relief: 'Relief', recruit: 'Recruit +1 man',
+  trench: 'Trench', rail: 'Rail', rally: 'Rally +1 gear', merge: 'Merge', split: 'Split',
+  relief: 'Relief', recruit: 'Recruit +1 man',
 };
 
 let map;
@@ -60,6 +61,8 @@ let bonusChoice = 0;
 let shellMode = false;
 // First card of a pair being assembled from the hand.
 let pairUid = null;
+// Cards picked for improvising (up to two of one suit).
+let improviseUids = [];
 
 async function start() {
   [map, config] = await Promise.all([
@@ -73,6 +76,7 @@ function resetPicks() {
   selectedId = null;
   bonusChoice = 0;
   pairUid = null;
+  improviseUids = [];
 }
 
 function newGame() {
@@ -112,6 +116,7 @@ function draw() {
     selectedId,
     targets: pending ? retreatOptions(state) : [...t.hexes, ...recruitSites(state)],
     zoc: enemyZone(),
+    front: $('show-front').checked && !state.over,
     movable: new Set(mover ? state.stacks.filter((s) => legalMoves(state, s.id).length > 0).map((s) => s.id) : []),
     enemyTargets: new Set(t.enemies.map((s) => s.id)),
     friendTargets: new Set(t.friends.map((s) => s.id)),
@@ -165,8 +170,8 @@ function drawStatus() {
   const other = state.current === 'A' ? 'B' : 'A';
   const limit = state.surrender.threshold;
   statusLine.textContent =
-    `Doctrine ${state.current}: ${doctrineText(state.current)} | Doctrine ${other}: ${doctrineText(other)} | Plays left: ${state.cardsPerTurn - state.played} | ` +
-    `Discard: ${state.discardUsed ? 'used' : 'available'} | Deck: ${state.decks[state.current].length} | ` +
+    `Doctrine ${state.current}: ${doctrineText(state.current)} | Doctrine ${other}: ${doctrineText(other)} | Orders played: ${state.played} | ` +
+    `Deck: ${state.decks[state.current].length} | ` +
     `Player ${other} holds ${state.hands[other].length} cards | ` +
     `Exhaustion A ${breakScore(state, 'A')}/${limit}, B ${breakScore(state, 'B')}/${limit} (men lost ${state.casualties.A}/${state.casualties.B}) | ` +
     `Towns lost: A ${townsLost(state, 'A').length}, B ${townsLost(state, 'B').length}` +
@@ -188,8 +193,7 @@ function drawOrder() {
   bonusChoice = Math.min(bonusChoice, max);
   const left = active.extraCost || pool ? ` (${active.points} points left)` : '';
   const key = pool && active.mode ? `${active.kind}:${active.mode}` : active.kind;
-  const info = orderInfo(state, state.current, active.cards);
-  orderText.textContent = `${info.face?.name ?? info.def.name}${left}: ${INSTRUCTIONS[key] ?? INSTRUCTIONS[active.kind]}`;
+  orderText.textContent = `${active.name}${left}: ${INSTRUCTIONS[key] ?? INSTRUCTIONS[active.kind]}`;
   if (pool && Object.keys(active.menu).length > 1) {
     modesEl.hidden = false;
     modesEl.innerHTML = Object.entries(active.menu).map(([mode, cost]) =>
@@ -246,28 +250,53 @@ function drawOver() {
 
 function drawHand() {
   const hand = state.hands[state.current];
+  const [impA, impB] = improviseUids.map((uid) => hand.find((c) => c.uid === uid));
+  const suitName = (card) => state.orders[card?.suit]?.name ?? '';
   handTitle.textContent = pairUid
-    ? `Player ${state.current}'s hand - pick a second ${state.orders[hand.find((c) => c.uid === pairUid)?.suit]?.name ?? ''} card to pair (or click the first again to cancel)`
-    : `Player ${state.current}'s hand`;
+    ? `Player ${state.current}'s hand - pick a second ${suitName(hand.find((c) => c.uid === pairUid))} card to pair (or click the first again to cancel)`
+    : impB
+      ? `Player ${state.current}'s hand - improvising with two ${suitName(impA)} cards: choose the order to play (click a picked card to cancel)`
+      : impA
+        ? `Player ${state.current}'s hand - pick a second ${suitName(impA)} card to discard with it (or click the first again to cancel)`
+        : `Player ${state.current}'s hand`;
+  improviseEl.hidden = !impB;
+  if (impB) {
+    improviseEl.innerHTML = Object.entries(state.orders).map(([suit, def]) => {
+      const issue = improviseIssue(state, impA, impB, suit);
+      const { tier } = orderInfo(state, state.current, [{ suit, rank: IMPROVISED_RANK }]);
+      return `<button data-improvise-suit="${suit}" class="suit-${suit}" ${issue ? 'disabled' : ''} title="${issue ?? ''}">` +
+        `${def.symbol} ${def.name} (tier ${tier})</button>`;
+    }).join(' ');
+  }
   handEl.innerHTML = hand
     .map((card) => {
       const { def, tier } = orderInfo(state, state.current, [card]);
       const first = hand.find((c) => c.uid === pairUid);
       let issue = cardIssue(state, card);
       if (first) issue = card.uid === pairUid ? null : pairIssue(state, first, card);
-      const canPair = !pairUid && !isFace(card.rank) &&
+      if (impA) {
+        const picked = card.uid === impA.uid || card.uid === impB?.uid;
+        issue = picked ? null : impB ? 'Choose the order to play above' : card.suit !== impA.suit ? 'Pick a card of the same suit' : null;
+      }
+      const picking = pairUid || impA;
+      const canPair = !picking && !isFace(card.rank) &&
         hand.some((c) => c.uid !== card.uid && pairIssue(state, card, c) === null);
+      const mate = hand.find((c) => c.uid !== card.uid && c.suit === card.suit);
+      const canImprovise = !picking && mate && Object.keys(state.orders).some((s) => improviseIssue(state, card, mate, s) === null);
       return (
         `<div class="card-wrap">` +
-        `<button class="card suit-${card.suit}${card.uid === pairUid ? ' picked' : ''}" data-uid="${card.uid}" ${issue ? 'disabled' : ''} ` +
+        `<button class="card suit-${card.suit}${card.uid === pairUid || card.uid === impA?.uid || card.uid === impB?.uid ? ' picked' : ''}" data-uid="${card.uid}" ${issue ? 'disabled' : ''} ` +
         `title="${issue ?? 'Play this card'}">` +
         `<span class="card-rank">${rankLabel(card.rank)}<span class="card-pip">${def.symbol}</span></span>` +
         `<span class="card-name">${def.name}</span>` +
         `<span class="card-suit">tier ${tier} · L${doctrineLevel(state, state.current, card.suit)}</span>` +
         `<span class="card-text">${cardText(state, state.current, [card])}</span></button>` +
+        `<span class="card-actions">` +
         `<button class="pair" data-pair="${card.uid}" ${canPair ? '' : 'disabled'}>Pair</button>` +
-        `<button class="discard" data-discard="${card.uid}" ${state.discardUsed || state.pending ? 'disabled' : ''}>` +
-        `Discard</button></div>`
+        `<button class="improvise" data-improvise="${card.uid}" ${canImprovise ? '' : 'disabled'} ` +
+        `title="Discard this and another ${def.name} card to play a rank-2 order of any suit">Improvise</button>` +
+        `<button class="discard" data-discard="${card.uid}" ${state.pending || picking ? 'disabled' : ''}>` +
+        `Discard</button></span></div>`
       );
     })
     .join('');
@@ -337,8 +366,16 @@ handEl.addEventListener('click', (event) => {
   const play = event.target.closest('[data-uid]');
   const pair = event.target.closest('[data-pair]');
   const discard = event.target.closest('[data-discard]');
-  if (pair && !pair.disabled) {
+  const improvising = event.target.closest('[data-improvise]');
+  if (improvising && !improvising.disabled) {
+    improviseUids = [improvising.dataset.improvise];
+    draw();
+  } else if (pair && !pair.disabled) {
     pairUid = pair.dataset.pair;
+    draw();
+  } else if (play && !play.disabled && improviseUids.length) {
+    const uid = play.dataset.uid;
+    improviseUids = improviseUids.includes(uid) ? [] : [...improviseUids, uid];
     draw();
   } else if (play && !play.disabled) {
     const first = pairUid;
@@ -375,6 +412,14 @@ modesEl.addEventListener('click', (event) => {
   });
 });
 $('show-zoc').addEventListener('change', draw);
+$('show-front').addEventListener('change', draw);
+improviseEl.addEventListener('click', (event) => {
+  const button = event.target.closest('[data-improvise-suit]');
+  if (button && !button.disabled) {
+    const [a, b] = improviseUids;
+    attempt(() => improvise(state, a, b, button.dataset.improviseSuit));
+  }
+});
 $('hold').addEventListener('click', () => attempt(() => resolveHold(state)));
 endOrderButton.addEventListener('click', () => attempt(() => endOrder(state)));
 endTurnButton.addEventListener('click', () => attempt(() => endTurn(state)));
