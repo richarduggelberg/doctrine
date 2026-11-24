@@ -676,6 +676,25 @@ test('bloodletting: the attacker pays for terrain and trenches, the defender for
   assert.equal(shelled.stacks.find((s) => s.id === 'B1').men, 2); // 1 + 2 offensive points
 });
 
+test('an attacker needs more men than the attack costs, so it cannot destroy itself', () => {
+  const rough = { '2,2': 'fortified' }; // an attacker pays 2 here
+  assert.throws(() => bare(duel(2, 3, rough)), /No stack/);
+  assert.deepEqual(legalAttacks(bare(duel(3, 3, rough)), 'A1').map((s) => s.id), ['B1']);
+  assert.equal(fight(3, 1, rough).stacks[0].men, 1, 'it survives with its last man');
+  assert.deepEqual(legalAttacks(bare(duel(2, 3)), 'A1').map((s) => s.id), ['B1'], 'flat ground costs 1');
+});
+
+test('if both nations are wiped out at once, the one that lost more men loses', () => {
+  const wipe = (casualties) => {
+    const state = duel(3, 3);
+    state.stacks = [];
+    state.casualties = casualties;
+    return endTurn(state);
+  };
+  assert.equal(wipe({ A: 5, B: 2 }).over.loser, 'A');
+  assert.equal(wipe({ A: 2, B: 5 }).over.loser, 'B');
+});
+
 test('artillery shells an adjacent stack for 1 point plus its trench chips, never below 2 men', () => {
   const sheller = (a, b, trenches = 0) => {
     const state = duel(a, b);
@@ -934,7 +953,49 @@ test('a surrounded stack loses a gear chip on each of its own turns, then a man 
   assert.equal(a(turn(surrounded(0))).men, 3, 'with no gear a man is lost straight away');
 });
 
+test('a stack touching a supplied friendly stack is not cut off, even if that friend sits in an enemy zone', () => {
+  const build = (stacks) => createGame(
+    { cols: 7, rows: 5, borderCol: 1, terrain: {}, capitals: { A: { col: 0, row: 2 }, B: { col: 6, row: 4 } }, stacks },
+    config,
+  );
+  const wall = [[2, 1], [3, 2], [2, 3], [1, 3], [1, 1]].map(([col, row]) => ({ owner: 'B', col, row, men: 3 }));
+  const linked = build([{ owner: 'A', col: 2, row: 2, men: 3 }, { owner: 'A', col: 1, row: 2, men: 3 }, ...wall]);
+  assert.equal(inEnemyZoc(linked, 'A', 1, 2), true, 'the link itself is under enemy guns');
+  assert.equal(isCutOff(linked, linked.stacks[0]), false, 'A1 is supplied through A2, which touches the capital');
+  const alone = build([{ owner: 'A', col: 2, row: 2, men: 3 }, ...wall]);
+  assert.equal(isCutOff(alone, alone.stacks[0]), true, 'without the friendly link it is surrounded');
+  const walled = build([{ owner: 'A', col: 3, row: 2, men: 3 }, { owner: 'A', col: 2, row: 2, men: 3 },
+    ...[[3, 1], [4, 2], [3, 3], [2, 1], [2, 3], [1, 1], [1, 3]].map(([col, row]) => ({ owner: 'B', col, row, men: 3 }))]);
+  assert.deepEqual(walled.stacks.slice(0, 2).map((s) => isCutOff(walled, s)), [true, true], 'a surrounded pair is still cut off');
+});
+
+test('supply must reach the capital or a held town within the supply range', () => {
+  const build = (col, places = []) => createGame(
+    { cols: 20, rows: 5, borderCol: 15, terrain: {}, places, capitals: { A: { col: 0, row: 2 }, B: { col: 19, row: 4 } },
+      stacks: [{ owner: 'A', col, row: 2, men: 3 }, { owner: 'B', col: 19, row: 0, men: 3 }] },
+    config,
+  );
+  const cut = (state) => isCutOff(state, state.stacks[0]);
+  assert.equal(cut(build(config.supplyRange)), false, 'just inside the range of the capital');
+  assert.equal(cut(build(config.supplyRange + 1)), true, 'one hex too far');
+  const depot = { col: 10, row: 2, name: 'Depot', size: 'small' };
+  assert.equal(cut(build(14, [depot])), false, 'a held town is a supply depot');
+  const taken = build(14, [depot]);
+  taken.towns[0].holder = 'B';
+  assert.equal(cut(taken), true, 'a town the enemy holds is not');
+});
+
+test('a cut-off stack exerts no zone of control', () => {
+  const free = duel(3, 3);
+  assert.equal(inEnemyZoc(free, 'B', 0, 2), true, 'a supplied A1 controls the hex behind it');
+  const trapped = surrounded(0);
+  assert.equal(isCutOff(trapped, trapped.stacks[0]), true);
+  assert.equal(inEnemyZoc(trapped, 'B', 0, 2), false, 'but a surrounded one does not');
+  assert.equal(inEnemyZoc(trapped, 'A', 3, 2), true, 'its captors still do');
+});
+
 // A 9x5 map: columns 0-3 are Player A's. A holds the towns (1,1), (3,0) and (2,3) (where A1 stands); B has (6,2).
+
 function muster() {
   return createGame(
     {

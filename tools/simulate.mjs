@@ -202,6 +202,7 @@ function takeTurn(state) {
         current = next;
         did = true;
       }
+      if (current.active?.acted) did = true;
       if (current.active) current = endOrder(current);
       state = current;
       if (did) {

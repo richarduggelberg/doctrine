@@ -967,3 +967,26 @@ M10 - PLAYING CARDS, TIERS, LONGER WALKS (supersedes M3 deck, M9 items 2, 3, 7,
     Bots never bank, so this says little about the hoarding tension.
     Needs human playtests; watch for the opening turns (4 cards each) and
     for quiet fronts that the exhaustion tick alone has to end.
+19. ATTACK COST LIMIT, SUPPLY THROUGH FRIENDS
+  - An attacker pays the target hex's terrain + trench chips in men (at least 1).
+    It can no longer pay with its last man: a stack may only attack a hex if it
+    has MORE men than that cost (`attackTargets`). So an attack can never
+    destroy its own attacker, and no mutual annihilation is possible. A 1-man
+    recruit stack cannot attack at all (MIN_ATTACKER_MEN 2).
+  - If both nations somehow lose their last stack at once, the one with more
+    casualties loses (a tie goes to the nation whose turn it is).
+  - Supply: a stack is not cut off if it can trace a path home through
+    adjacent friendly stacks. The hex of a friendly stack counts as passable even
+    when it sits in an enemy zone, so a line of touching stacks stays supplied
+    as long as one end reaches home. A group walled in on all sides is still cut off.
+  - Sim (40 games): A 21 / B 19, ~18 rounds, casualties A 44 / B 35.
+  - Supply range: the path must also be at most `supplyRange` (10) hexes long and
+    end at a SUPPLY DEPOT: the capital, or a town the nation holds (its own home
+    town the enemy has not taken, or an enemy town it has captured). The depot
+    must lie outside enemy zones (the capital is exempt). A stack that has pushed
+    too far past its last town is cut off and bleeds like a surrounded one.
+    Trial (30 games): range 6 A 9 / B 21, 8: 13 / 17, 10: 14 / 16, unlimited:
+    17 / 13 - the shorter the range, the harder it is for the aggressor.
+  - A cut-off stack exerts no zone of control (`inEnemyZoc` ignores it). Supply
+    paths themselves are judged against the full zones (`inRawZoc`) so the two
+    rules cannot loop.

@@ -2,6 +2,7 @@
   "handSize": 7,
   "startHand": 4,
   "drawPerTurn": 2,
+  "supplyRange": 10,
   "move": 2,
   "symbols": {
     "aggressive": "♠",

@@ -133,6 +133,16 @@ export function breakScore(state, owner) {
   return state.casualties[owner] + state.exhaustion[owner];
 }
 
+// The nation that loses when stacks are wiped out: the one with none left. If both are wiped at once, the one that
+// lost more men loses, and a tie goes to the nation that was not on the move.
+function wipedNation(state) {
+  const wiped = PLAYERS.filter((p) => !state.stacks.some((s) => s.owner === p));
+  if (wiped.length < 2) return wiped[0] ?? null;
+  const [a, b] = wiped;
+  if (state.casualties[a] !== state.casualties[b]) return state.casualties[a] > state.casualties[b] ? a : b;
+  return state.current;
+}
+
 function endGame(state, loser, reason) {
   state.over = {
     loser,
@@ -204,6 +214,7 @@ export function createGame(map, config, seed = 1) {
     // Orders are unlimited; the hand is the bank: it starts at `startHand`, gains `drawPerTurn` cards at the end of
     // each turn, and never holds more than `handSize`.
     drawPerTurn: config.drawPerTurn,
+    supplyRange: config.supplyRange,
     rng: seed | 0,
     // One deck per player (a standard 52 cards), and each player's own discard pile.
     decks: { A: [], B: [] },
@@ -314,32 +325,49 @@ function emptyNeighbors(state, stack) {
   );
 }
 
-// Zone of control: every hex next to a stack. A hex is in the enemy zone if an enemy stack touches it.
+// Zone of control: every hex next to a stack. A hex is in the enemy zone if an enemy stack touches it, unless that
+// stack is itself cut off (surrounded or out of supply): a cut-off stack exerts no zone.
 export function inEnemyZoc(state, owner, col, row) {
+  return neighbors(col, row).some((n) => {
+    const s = stackAt(state, n.col, n.row);
+    return s && s.owner !== owner && s.men > 0 && !isCutOff(state, s);
+  });
+}
+
+// The same zone without the cut-off exception. Supply paths are judged against it, which keeps the two rules from
+// depending on each other forever.
+function inRawZoc(state, owner, col, row) {
   return neighbors(col, row).some((n) => {
     const s = stackAt(state, n.col, n.row);
     return s && s.owner !== owner && s.men > 0;
   });
 }
 
-// Supply: a stack needs a path back to its own capital that crosses no enemy zone and no enemy stack.
-// Its own hex is exempt (front-line stacks always sit in a zone) and so is the capital hex itself.
-// A stack that has no such path is cut off (surrounded): it can do nothing and bleeds each turn.
+// Supply: a stack needs a path of at most supplyRange hexes to a supply depot - its capital or a town its nation
+// holds (a home town the enemy has not taken, or an enemy town it has captured) - that crosses no enemy zone and no
+// enemy stack. Its own hex is exempt (front-line stacks always sit in a zone) and so is the hex of every adjacent
+// friendly stack, so supply can run along a line of touching stacks. The capital hex itself is exempt too; a town
+// depot must lie outside the enemy zones. A stack with no such path is cut off (surrounded or too far from home):
+// it can do nothing and bleeds each turn.
 export function isCutOff(state, stack) {
   const cap = state.capitals[stack.owner];
-  const seen = new Set([key(stack.col, stack.row)]);
+  const depots = new Set(state.towns.filter((t) => t.holder === stack.owner).map((t) => key(t.col, t.row)));
+  const dist = new Map([[key(stack.col, stack.row), 0]]);
   const queue = [stack];
   while (queue.length) {
     const here = queue.shift();
+    const steps = dist.get(key(here.col, here.row)) + 1;
+    if (steps > state.supplyRange) break;
     for (const n of neighbors(here.col, here.row)) {
       const k = key(n.col, n.row);
-      if (seen.has(k) || !inBounds(state, n.col, n.row)) continue;
-      seen.add(k);
+      if (dist.has(k) || !inBounds(state, n.col, n.row)) continue;
+      dist.set(k, steps);
       const other = stackAt(state, n.col, n.row);
       if (other && other.owner !== stack.owner) continue;
-      const home = n.col === cap.col && n.row === cap.row;
-      if (home) return false;
-      if (!inEnemyZoc(state, stack.owner, n.col, n.row)) queue.push(n);
+      if (n.col === cap.col && n.row === cap.row) return false;
+      const free = !inRawZoc(state, stack.owner, n.col, n.row);
+      if (!other && free && depots.has(k)) return false;
+      if (other || free) queue.push(n);
     }
   }
   return !(stack.col === cap.col && stack.row === cap.row);
@@ -365,7 +393,7 @@ function directTargets(state, stack) {
 function eligible(state, kind, stack) {
   if (isCutOff(state, stack)) return false;
   switch (kind) {
-    case 'attack': return stack.men >= MIN_ATTACKER_MEN && directTargets(state, stack).length > 0;
+    case 'attack': return attackTargets(state, stack).length > 0;
     case 'defend':
     case 'logistics':
     case 'homefront': return true;
@@ -627,14 +655,21 @@ export function moveStack(state, id, col, row) {
   return next;
 }
 
-// Enemy stacks the given stack may attack from where it stands. Attacking costs 1 man, so a lone man cannot.
+// Enemy stacks a stack could attack: the attacker pays the target hex's terrain and trench chips (at least 1 man),
+// and it cannot pay with its last man, so it needs more men than that.
+function attackTargets(state, stack) {
+  if (stack.men < MIN_ATTACKER_MEN) return [];
+  return directTargets(state, stack).filter((t) => stack.men > Math.max(1, fortification(state, t.col, t.row)));
+}
+
+// Enemy stacks the given stack may attack from where it stands.
 export function legalAttacks(state, id) {
   const stack = getStack(state, id);
   const a = activeFor(state, 'attack', stack);
-  if (!a || a.used.includes(id) || stack.men < MIN_ATTACKER_MEN) return [];
+  if (!a || a.used.includes(id)) return [];
   // Shelling can leave too few points to pay for the second attack the order still has a charge for.
   if (a.used.length && a.points < a.extraCost) return [];
-  return directTargets(state, stack);
+  return attackTargets(state, stack);
 }
 
 // Offensive points are a pool: the first attack is free, every further attack costs
@@ -772,7 +807,7 @@ function finishBattle(next, battle) {
   }
   updateTowns(next);
   // A nation with no stacks left cannot fight on.
-  const wiped = PLAYERS.find((p) => !next.stacks.some((s) => s.owner === p));
+  const wiped = wipedNation(next);
   if (wiped) endGame(next, wiped, 'all stacks destroyed');
 }
 
@@ -1012,7 +1047,7 @@ export function endTurn(state) {
   }
   next.stacks = next.stacks.filter((s) => s.men > 0);
   trimTrenches(next);
-  const wiped = PLAYERS.find((p) => !next.stacks.some((s) => s.owner === p));
+  const wiped = wipedNation(next);
   if (wiped) {
     endGame(next, wiped, 'all stacks destroyed');
     return next;
