@@ -16,6 +16,8 @@ if (process.env.THRESH) config.surrender.threshold = Number(process.env.THRESH);
 // TURNTICK=n overrides the flat exhaustion each nation gains per turn; RELIEF=n the base relief of a Home Front card.
 if (process.env.TURNTICK) config.surrender.turnTick = Number(process.env.TURNTICK);
 if (process.env.RELIEF) config.orders.willingness.relief = Number(process.env.RELIEF);
+// SUPPORT=perStack,max overrides the adjacent-stack defence bonus (0,0 turns it off).
+if (process.env.SUPPORT) [config.support.perStack, config.support.max] = process.env.SUPPORT.split(',').map(Number);
 if (process.env.MIRROR) config.doctrine.B = structuredClone(config.doctrine.A);
 // TOWNW=small,big overrides the exhaustion a lost town costs each turn.
 if (process.env.TOWNW) [config.surrender.townWeight, config.surrender.bigTownWeight] = process.env.TOWNW.split(',').map(Number);

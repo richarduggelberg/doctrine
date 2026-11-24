@@ -6,7 +6,7 @@ import {
   endTurn, featuresAt, fortification, inBounds, inEnemyZoc, isCutOff, legalAttacks, legalMerges, legalMoves, legalSplits,
   maxBonus, mergeStacks, moveStack, orderTier, pairIssue, playCard, resolveHold, resolveRetreat, retreatOptions, shell, shellCost,
   shellTargets, splitStack, placeRecruit, recruitSites, recruitsFor,
-  stackAt, strength, terrainAt, terrainBonus, territoryOf, townsLost,
+  stackAt, strength, support, terrainAt, terrainBonus, territoryOf, townsLost,
 } from '../js/engine.js';
 import { distance, neighbors } from '../js/hex.js';
 
@@ -296,6 +296,26 @@ test('terrain, trenches and bracing add to defense; a tie is a stalemate with at
   braced.stacks[1].braced = 1;
   braced.defense['2,2'] = 2;
   assert.equal(strength(braced, braced.stacks[1], true), 6);
+});
+
+test('a defender is backed by adjacent friendly stacks, up to the cap, and only by friends', () => {
+  const state = duel(4, 3);
+  const b1 = state.stacks[1];
+  assert.equal(support(state, b1), 0);
+  const withNeighbours = (extra) => {
+    const next = structuredClone(state);
+    for (const [col, row] of extra) next.stacks.push({ id: `X${col}${row}`, owner: 'B', col, row, men: 2, gear: 0, braced: 0 });
+    return next;
+  };
+  const one = withNeighbours([[3, 2]]);
+  assert.equal(support(one, one.stacks[1]), config.support.perStack);
+  assert.equal(strength(one, one.stacks[1], true), 3 + config.support.perStack);
+  assert.equal(strength(one, one.stacks[1], false), 3, 'support does not help an attacker');
+  const many = withNeighbours([[3, 2], [2, 1], [2, 3]]);
+  assert.equal(support(many, many.stacks[1]), config.support.max, 'the bonus is capped');
+  assert.equal(support(many, many.stacks[0]), 0, "the enemy's neighbours do not support A1");
+  const far = withNeighbours([[5, 2]]);
+  assert.equal(support(far, far.stacks[1]), 0, 'a stack two hexes away gives nothing');
 });
 
 test('a repulsed attacker pays only attrition; the defender gains no gear and nobody has to choose', () => {

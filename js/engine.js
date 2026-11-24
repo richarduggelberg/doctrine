@@ -222,6 +222,7 @@ export function createGame(map, config, seed = 1) {
     // A stack on the enemy capital is 'armed'; if it is still there when the enemy's turn ends, the war is won.
     siege: { A: null, B: null },
     surrender: { ...config.surrender },
+    support: { ...config.support },
     over: null,
     pending: null,
     log: ['Game start. Player A moves first.'],
@@ -272,10 +273,16 @@ export function fortification(state, col, row) {
   return terrainBonus(state, col, row) + (state.defense[key(col, row)] ?? 0);
 }
 
+// A defender is backed by each friendly stack on an adjacent hex (up to a cap), so stacks side by side form a line.
+export function support(state, stack) {
+  const { perStack = 0, max = 0 } = state.support ?? {};
+  return Math.min(max, perStack * adjacentStacks(state, stack, true).length);
+}
+
 export function strength(state, stack, defending) {
   const base = stack.men + stack.gear;
   if (!defending) return base;
-  return base + fortification(state, stack.col, stack.row) + stack.braced;
+  return base + fortification(state, stack.col, stack.row) + stack.braced + support(state, stack);
 }
 
 function adjacentStacks(state, stack, owned) {

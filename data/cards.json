@@ -10,6 +10,7 @@
   },
   "suits": { "S": "aggressive", "C": "defensive", "D": "reorganizational", "H": "willingness" },
   "doctrineShift": [-2, -1, 0, 1],
+  "support": { "perStack": 1, "max": 2 },
   "surrender": {
     "threshold": 55,
     "turnTick": 1,

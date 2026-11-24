@@ -908,6 +908,18 @@ M10 - PLAYING CARDS, TIERS, LONGER WALKS (supersedes M3 deck, M9 items 2, 3, 7,
     mover took more towns and won ~75% (37/13); with both weights 1 it is
     22/18. The flat tick alone ends bot games at about 30+ rounds, so it is
     mostly a backstop. Needs human playtests.
+ 16. ADJACENT-STACK SUPPORT (first step toward a frontline feel).
+  - A defending stack gets +1 defence for each friendly stack on an adjacent
+    hex, capped at +2 (`support` in cards.json: perStack 1, max 2). It counts
+    in `strength(state, stack, true)` so the board numbers, the attack preview
+    and the bots all see it. It does not change the attacker's strength or the
+    bloodletting (attacker losses still use terrain + trenches only), and an
+    attacker never gets it. Stacks standing side by side hold better than a
+    lone stack, which rewards forming a line instead of scattering.
+  - Simulation (40 games each): off A 22 / B 18, ~15.6 rounds; 1/2 A 19 /
+    B 21, ~17.1 rounds; 1/1 A 20 / B 20, ~16.7 rounds. Balance is unchanged
+    and games run a little longer. Not done yet: flank exposure, linked
+    trenches, blocking zones of control, drawing the front line on the map.
 
 
 

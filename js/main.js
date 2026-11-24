@@ -2,7 +2,7 @@ import {
   applyPool, applyToStack, attack, breakScore, cardIssue, cardText, chooseMode, createGame, discardCard,
   doctrineLevel, eligibleStacks, endOrder, endTurn, getStack, inEnemyZoc, isCutOff, isDirectOrder, isFace, legalAttacks,
   legalMerges, legalMoves, legalSplits, mergeStacks, moveStack, maxBonus, needsTarget, orderInfo, pairIssue, playCard,
-  rankLabel, recruitSites, resolveHold, resolveRetreat, retreatOptions, shell, shellTargets, splitStack, strength, terrainBonus, featuresAt, townsLost,
+  rankLabel, recruitSites, resolveHold, resolveRetreat, retreatOptions, shell, shellTargets, splitStack, strength, support, terrainBonus, featuresAt, townsLost,
   placeRecruit,
 } from './engine.js';
 import { renderBoard } from './render.js';
@@ -144,7 +144,7 @@ function drawInfo() {
   }
   const lines = [
     `${stack.id}${stack.army ? ` (${stack.army})` : ''}: ${stack.men} men chips${state.menPerChip ? ` (~${(stack.men * state.menPerChip).toLocaleString('en-US')} soldiers)` : ''} + ${stack.gear} gear on ${describeTerrain(stack.col, stack.row)} ` +
-      `(${stack.col},${stack.row}). Defends at ${strength(state, stack, true)}.` +
+      `(${stack.col},${stack.row}). Defends at ${strength(state, stack, true)}${support(state, stack) ? ` (incl. +${support(state, stack)} from neighbouring stacks)` : ''}.` +
       `${stack.fought ? ' Fought this turn: cannot walk.' : stack.halted ? ' Halted in an enemy zone.' : stack.moved ? ` Walked ${stack.moved} hex(es) this turn.` : ''}` +
       `${isCutOff(state, stack) ? ' SURROUNDED: no supply path home, it can do nothing and bleeds a gear chip, then a man, every turn.' : ''}`,
   ];
