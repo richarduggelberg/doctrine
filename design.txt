@@ -699,11 +699,12 @@ playtests disagree):
      terrain make the attacker bleed. Whoever has the upper hand, both pay.
        Somme example: 6 men + 3 pts vs 5 men on fortified + 2 trenches is
        9 vs 9: stalemate, the attacker loses 4, the defender loses 4.
-  2. SPENT ATTACKERS: a stack that advances is spent, -1 strength (attack
-     and defence) until its owner's next turn begins. A counter-attack
-     window, standing in for attacks outrunning their support. (Captured
-     trenches facing the wrong way was proposed and REJECTED as too
-     complicated.)
+  2. SPENT ATTACKERS: REMOVED. A stack that advanced used to be spent (-1
+     strength until its owner's next turn). The counter-attack window it gave
+     is now left to bloodletting (the attacker pays for terrain and trenches),
+     the free enemy-ZOC rule (an advance can be hit by stacks next to it),
+     war exhaustion and surrounded stacks. The bot simulation barely moved
+     (about 10-12 wins for A of 40 either way).
   3. WAR WEARINESS (the standstill clock): at the end of each of a nation's
      turns in which it captured no hex, its weariness rises by 1 and counts
      in its break score. Capturing a hex resets it to 0. In a stalemate
@@ -774,7 +775,9 @@ M9 - ZONES OF CONTROL, FREE MOVEMENT AND DOCTRINE POINT MENUS
   hasty assaults and never use rail or split, so this needs human playtests.
   Not built: manpower pools, doctrine drafting, nation cards, game-log export.
 
-M10 - PLAYING CARDS, TIERS, LONGER WALKS (supersedes M3 deck, M9 items 2, 3, 7)
+M10 - PLAYING CARDS, TIERS, LONGER WALKS (supersedes M3 deck, M9 items 2, 3, 7,
+     the "attacker gains 1 gear / defender gains 1 gear" lines of M7, and
+     the spent-stack idea of M8 item 2 and M9 item 3)
   Decisions confirmed by the designer; numbers are playtest guesses.
   1. DECKS: one standard 52-card deck per player, no jokers. Ranks 2-10, J, Q,
      K, Ace (high). A spent deck is refilled from that player's own discards.
@@ -797,13 +800,13 @@ M10 - PLAYING CARDS, TIERS, LONGER WALKS (supersedes M3 deck, M9 items 2, 3, 7)
        Spades    J Surprise (defender's trench chips do not count)
                  Q Combined arms (extra attacks cost 1 point)
                  K No quarter (a beaten defender cannot retreat)
-                 A Breakthrough (loser -1 man more, the winner is not spent)
+                 A Breakthrough (loser -1 man more)
        Clubs     J Elastic defence   Q Reserves (+1 defence, all stacks)
                  K Iron wall (brace +2, trench limit +1)   A all of these
        Diamonds  J Rail net (+3 hexes)   Q Staff work (+2 points)
                  K Depots (rally costs 1, limit +1)        A all of these
-       Hearts    J Propaganda drive (+2 resolve)   Q Relief effort (-4 weariness)
-                 K Conscription (recruits cost 1)  A all of these
+       Hearts    J War bonds (relief 2)            Q Relief effort (relief 3)
+                 K Conscription (recruits cost 1)  A relief 3 + cheap recruits
   6. ATTACKING: only a spade order lets a stack attack. One stack attacks an
      ADJACENT enemy for free (no assault entry, no hasty penalty); points are
      +1 strength each, or extraCost (2) for another attack by another stack.
@@ -817,13 +820,16 @@ M10 - PLAYING CARDS, TIERS, LONGER WALKS (supersedes M3 deck, M9 items 2, 3, 7)
      highlights every hex within reach (up to 2 hexes, 2 + rail with rail)
      and one click on any of them moves the stack there; a zone hex is only
      ever the last step of a path.
-  8. DEFENDERS: a defender who holds gains no gear/experience; only an
-     attacker with the upper hand gains a gear chip. A stack can never have
+  8. DEFENDERS AND GEAR: nobody gains gear for merely winning or holding. A
+     defender who holds or repels an attack gains nothing; the attacker gains
+     a gear chip only when it displaces an enemy stack, i.e. it takes the hex
+     because the defender retreated or was destroyed. Other sources: rally,
+     merge (gear adds) and split (gear halves). A stack can never have
      more gear than men: gain and rally stop at that cap, and gear that no
      longer fits is lost along with the men.
   9. SURRENDER: the surrender cards are gone with the jokers. Instead, at the
-     end of each player's own turn the nation breaks if its break score has
-     reached its hidden threshold (56-72, +2 per willingness level).
+      end of each player's own turn the nation breaks if its public exhaustion
+      meter has reached the fixed limit (superseded by item 15).
  10. TOWNS: the map has ~100 named places (big cities and fortresses, cities,
      small towns; sized by label). Each one on French or German soil belongs
      to that nation; Belgian, Luxembourg and Dutch ones are neutral and never
@@ -831,10 +837,9 @@ M10 - PLAYING CARDS, TIERS, LONGER WALKS (supersedes M3 deck, M9 items 2, 3, 7)
      advancing into it after a won attack); the town is then outlined in the
      captor's colour with a flag and stays captured until a stack of the other
      side stands on it again. EXHAUSTION: at the end of each of its own turns
-     a nation gains +1 exhaustion for each town the enemy holds (+2 for big
-     cities and fortresses). It never resets and adds to the break score on
-     top of weariness. Capitals are towns too (and still win the war when held
-     a full round).
+     a nation gains exhaustion for each town the enemy holds (see item 15 for
+     the current numbers). Capitals are towns too (and still win the war when
+     held a full round).
  11. SURROUNDED STACKS: a cut-off stack (item 8 of M9) now loses 1 gear chip on
      each of its owner's turns while it has gear, and 1 man each turn once the
      gear is gone, starting with the first turn.
@@ -842,6 +847,67 @@ M10 - PLAYING CARDS, TIERS, LONGER WALKS (supersedes M3 deck, M9 items 2, 3, 7)
   56-72 to make up for the exhaustion ticks): A ~29 / B ~11, ~14 rounds. Bots
   do not defend towns, and the side that moves first captures first, so the
   first-mover edge is the thing to watch in human playtests.
+ 12. DEFAULT SCENARIO DOCTRINES (both declared): Germany (B) has Aggressive 3
+     (major), Reorganizational 2 (minor), Defensive 1, Willingness 0. France
+     (A) has Willingness 3 (major), Defensive 2 (minor), Reorganizational 1,
+     Aggressive 0. The tests pin their own doctrines, so they do not depend
+     on this scenario. With these doctrines and the spent rule removed the
+     same simulation gives A 12 / B 28 (~15 rounds): the aggressive major
+     beats naive bots that do not defend. Needs human playtests before any
+     tuning; candidate knobs are the surrender thresholds per nation.
+ 13. ARTILLERY AND EMPTY TRENCHES.
+  - Shelling: during an active Offensive (spade) order, instead of an assault
+    the player may pay points to shell an enemy stack adjacent to one of its
+    own (not cut off). Cost = 1 + the trench chips on the target hex (1 if the
+    order carries Surprise, which ignores trenches). The target loses 1 man;
+    the shooter loses nothing. A stack with 2 men or fewer cannot be shelled.
+    Shelling counts as casualties, does not use up the order's attack and can
+    be repeated while points last; unspent points are lost when the attack is
+    made. It does not set the "fought" flag of any stack.
+  - Empty hexes keep at most one trench chip. When a stack leaves a hex
+    (walk, retreat, destruction, merge) the extra chips are removed; the
+    hex's trenches are trimmed before an advancing attacker enters it.
+  - Simulation (40 games): bots that shell when no winning attack is in
+    reach give A 9 / B 31, ~15 rounds, casualties A 36 / B 28; with shelling
+    off A 14 / B 26. Shelling mostly helps the side with the most spade points
+    (Germany). Needs human playtests.
+ 14. FREE RECRUITS EVERY TURN.
+  - At the start of each of its turns a nation may muster recruits: 1 / 1 / 2 /
+    3 for Willingness doctrine level 0 / 1 / 2 / 3 (`recruits` in cards.json).
+    Each recruit becomes a new 1-man stack on an empty town of the nation's
+    own territory that the enemy has not taken. A recruit is not placed on a
+    town where the new stack would be surrounded (cut off from home). Recruits
+    are free (no card, no points) and are lost if not placed by the end of the
+    turn. The new stack has used its walk. Merge (Logistics) joins them up.
+  - The Home Front card's recruit (+1 man to a stack on home soil) stays as a
+    surge on top; cut-off stacks cannot receive it.
+  - Fix found while simulating: after a first attack the remaining points must
+    still pay the extra attack's cost; shelling can spend them below that, and
+    the second attack is then not offered.
+  - Simulation (100 games, naive bots that muster recruits about three hexes
+    behind the front): A 48 / B 52, ~14 rounds, every game ends by broken
+    will, casualties A 38 / B 27. With recruits off it was A 9 / B 31 (40
+    games), so the Willingness major (France) is now about on par with the
+    Offensive major (Germany).
+ 15. PUBLIC EXHAUSTION METER (supersedes hidden thresholds, resolve, war
+     weariness, battles lost, home-hex points, the declared-doctrine bonus
+     and the Willingness threshold bonus of M9/M10; older notes on "break
+     score", "thresholds 56-72", propaganda and secret doctrines are void).
+  - Each nation has one public number: men lost + accumulated exhaustion.
+    Exhaustion ticks at the end of each of the nation's own turns by a flat
+    +1 (`turnTick`; this replaces any hard turn limit, every war wears down)
+    plus +1 per town the enemy holds (`townWeight`, `bigTownWeight`; both 1).
+  - The nation breaks, and loses, when the meter reaches the same fixed limit
+    for both (`threshold`, 55), checked at the end of its own turn. There is
+    no hidden information left: doctrines are always shown.
+  - Home Front hearts keep recruit (2 points) and relief (1 point): relief
+    lowers exhaustion by 1 (J 2, Q 3, A 3) but never below zero and never
+    refunds men lost.
+  - Calibration (naive bots, 40-50 games per setting): limit 45 gave games
+    of ~11 rounds; 55 gives ~15 rounds. With big towns worth 2 the first
+    mover took more towns and won ~75% (37/13); with both weights 1 it is
+    22/18. The flat tick alone ends bot games at about 30+ rounds, so it is
+    mostly a backstop. Needs human playtests.
 
 
 

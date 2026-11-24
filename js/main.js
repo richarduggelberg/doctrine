@@ -1,8 +1,9 @@
 import {
   applyPool, applyToStack, attack, breakScore, cardIssue, cardText, chooseMode, createGame, discardCard,
-  doctrineLevel, eligibleStacks, endOrder, endTurn, getStack, inEnemyZoc, isCutOff, isDirectOrder,   isFace, legalAttacks,
+  doctrineLevel, eligibleStacks, endOrder, endTurn, getStack, inEnemyZoc, isCutOff, isDirectOrder, isFace, legalAttacks,
   legalMerges, legalMoves, legalSplits, mergeStacks, moveStack, maxBonus, needsTarget, orderInfo, pairIssue, playCard,
-  rankLabel, resolveHold, resolveRetreat, retreatOptions, splitStack, strength, terrainBonus, featuresAt, townsLost,
+  rankLabel, recruitSites, resolveHold, resolveRetreat, retreatOptions, shell, shellTargets, splitStack, strength, terrainBonus, featuresAt, townsLost,
+  placeRecruit,
 } from './engine.js';
 import { renderBoard } from './render.js';
 
@@ -32,7 +33,7 @@ const handTitle = $('hand-title');
 const overPanel = $('over');
 
 const INSTRUCTIONS = {
-  attack: 'Select a highlighted stack, then click a red-dashed adjacent enemy to attack it.',
+  attack: 'Select a highlighted stack, then click a red-dashed adjacent enemy to attack it. Shell first if you want artillery: it is paid from the same points.',
   'defend:trench': 'Click a highlighted stack to add a trench chip to its hex.',
   'defend:brace': 'Click a highlighted stack to brace it (extra defence until it moves).',
   defend: 'Choose what to spend points on.',
@@ -55,6 +56,8 @@ let config;
 let state;
 let selectedId = null;
 let bonusChoice = 0;
+// Artillery mode of an Offensive order: clicking an adjacent enemy shells it instead of attacking.
+let shellMode = false;
 // First card of a pair being assembled from the hand.
 let pairUid = null;
 
@@ -73,14 +76,15 @@ function resetPicks() {
 }
 
 function newGame() {
-  const setup = structuredClone(config);
-  for (const p of ['A', 'B']) setup.doctrine[p].public = $(`declare-${p}`).checked;
-  state = createGame(map, setup, Math.floor(Math.random() * 2 ** 31));
+  state = createGame(map, structuredClone(config), Math.floor(Math.random() * 2 ** 31));
   resetPicks();
   draw();
 }
 
 function targetsFor(id) {
+  if (shellMode && state.active?.kind === 'attack' && !state.pending) {
+    return { hexes: [], enemies: shellTargets(state), friends: [] };
+  }
   if (!id || state.pending) return { hexes: [], enemies: [], friends: [] };
   return {
     hexes: [...(state.active ? [] : legalMoves(state, id)), ...legalSplits(state, id)],
@@ -106,7 +110,7 @@ function draw() {
   const mover = !state.active && !pending && !state.over;
   renderBoard(svg, state, {
     selectedId,
-    targets: pending ? retreatOptions(state) : t.hexes,
+    targets: pending ? retreatOptions(state) : [...t.hexes, ...recruitSites(state)],
     zoc: enemyZone(),
     movable: new Set(mover ? state.stacks.filter((s) => legalMoves(state, s.id).length > 0).map((s) => s.id) : []),
     enemyTargets: new Set(t.enemies.map((s) => s.id)),
@@ -132,8 +136,10 @@ function draw() {
 
 function drawInfo() {
   const stack = selectedId && getStack(state, selectedId);
+  const muster = state.recruits[state.current] > 0 && !state.over
+    ? ` ${state.recruits[state.current]} recruit(s) to muster: click a highlighted empty home town (${recruitSites(state).length} available).` : '';
   if (!stack) {
-    infoPanel.textContent = `Play a card from your hand, then use the highlighted stacks. Without an order every stack can walk ${state.move} hexes (dotted halo); entering an enemy zone is free but ends the walk.`;
+    infoPanel.textContent = `Play a card from your hand, then use the highlighted stacks. Without an order every stack can walk ${state.move} hexes (dotted halo); entering an enemy zone is free but ends the walk.${muster}`;
     return;
   }
   const lines = [
@@ -157,15 +163,12 @@ function doctrineText(owner) {
 
 function drawStatus() {
   const other = state.current === 'A' ? 'B' : 'A';
-  const own = doctrineText(state.current);
-  const theirs = state.doctrine[other].public ? doctrineText(other) : 'secret';
+  const limit = state.surrender.threshold;
   statusLine.textContent =
-    `Doctrine ${state.current}: ${own} | Doctrine ${other}: ${theirs} | Plays left: ${state.cardsPerTurn - state.played} | ` +
+    `Doctrine ${state.current}: ${doctrineText(state.current)} | Doctrine ${other}: ${doctrineText(other)} | Plays left: ${state.cardsPerTurn - state.played} | ` +
     `Discard: ${state.discardUsed ? 'used' : 'available'} | Deck: ${state.decks[state.current].length} | ` +
     `Player ${other} holds ${state.hands[other].length} cards | ` +
-    `Break score A ${breakScore(state, 'A')}, B ${breakScore(state, 'B')} (thresholds hidden) | ` +
-    `Weariness A ${state.weariness.A}, B ${state.weariness.B} | ` +
-    `Exhaustion A ${state.exhaustion.A}, B ${state.exhaustion.B} | ` +
+    `Exhaustion A ${breakScore(state, 'A')}/${limit}, B ${breakScore(state, 'B')}/${limit} (men lost ${state.casualties.A}/${state.casualties.B}) | ` +
     `Towns lost: A ${townsLost(state, 'A').length}, B ${townsLost(state, 'B').length}` +
     ['A', 'B'].filter((p) => state.siege[p]).map((p) => ` | ${p} holds the enemy capital: wins if it survives the enemy turn`).join('');
 }
@@ -175,7 +178,11 @@ function drawOrder() {
   orderPanel.hidden = !active;
   bonusEl.hidden = true;
   modesEl.hidden = true;
-  if (!active) return;
+  if (!active) {
+    shellMode = false;
+    return;
+  }
+  if (active.kind !== 'attack' || !shellTargets(state).length) shellMode = false;
   const pool = Boolean(active.menu);
   const max = maxBonus(state);
   bonusChoice = Math.min(bonusChoice, max);
@@ -189,7 +196,14 @@ function drawOrder() {
       `<button data-mode="${mode}" class="${mode === active.mode ? 'on' : ''}" ${active.points < cost ? 'disabled' : ''}>` +
       `${MODE_LABELS[mode]} (${cost})</button>`).join(' ');
   }
-  if (active.kind === 'attack' && !state.pending && max > 0) {
+  if (active.kind === 'attack' && !state.pending && active.points > 0) {
+    modesEl.hidden = false;
+    modesEl.innerHTML =
+      `<button data-shell="0" class="${shellMode ? '' : 'on'}">Attack</button> ` +
+      `<button data-shell="1" class="${shellMode ? 'on' : ''}" ${shellTargets(state).length || shellMode ? '' : 'disabled'}>` +
+      `Shell (1 point + trenches)</button>`;
+  }
+  if (active.kind === 'attack' && !state.pending && max > 0 && !shellMode) {
     bonusEl.hidden = false;
     bonusEl.innerHTML = 'Spend on this attack: ' + Array.from({ length: max + 1 }, (_, n) =>
       `<button data-bonus="${n}" class="${n === bonusChoice ? 'on' : ''}">+${n}</button>`).join('') +
@@ -220,13 +234,13 @@ function drawOver() {
   $('over-title').textContent = `Player ${over.loser} is defeated - Player ${over.winner} wins`;
   $('over-reason').textContent = over.reason;
   const rows = ['A', 'B']
-    .map((p) => `<tr><td>Player ${p}</td><td>${over.scores[p]}</td><td>${over.thresholds[p]}</td></tr>`)
+    .map((p) => `<tr><td>Player ${p}</td><td>${over.scores[p]}</td><td>${over.threshold}</td></tr>`)
     .join('');
   const doctrines = ['A', 'B']
-    .map((p) => `<tr><td>Player ${p}</td><td colspan="2">${doctrineText(p)}${state.doctrine[p].public ? ' (declared)' : ' (secret)'}</td></tr>`)
+    .map((p) => `<tr><td>Player ${p}</td><td colspan="2">${doctrineText(p)}</td></tr>`)
     .join('');
   $('over-table').innerHTML =
-    `<tr><th></th><th>Break score</th><th>Threshold</th></tr>${rows}` +
+    `<tr><th></th><th>Exhaustion</th><th>Limit</th></tr>${rows}` +
     `<tr><th></th><th colspan="2">Doctrine</th></tr>${doctrines}`;
 }
 
@@ -289,6 +303,7 @@ svg.addEventListener('click', (event) => {
     const id = stackEl.dataset.stack;
     const t = targetsFor(selectedId);
     if (t.enemies.some((s) => s.id === id)) {
+      if (shellMode) return attempt(() => shell(state, id));
       const from = selectedId;
       const bonus = bonusChoice;
       return attempt(() => attack(state, from, id, bonus));
@@ -308,6 +323,11 @@ svg.addEventListener('click', (event) => {
     const id = selectedId;
     if (!state.active && inList(legalMoves(state, id), col, row)) return attempt(() => moveStack(state, id, col, row));
     if (inList(legalSplits(state, id), col, row)) return attempt(() => splitStack(state, id, col, row));
+  }
+  if (hexEl && inList(recruitSites(state), Number(hexEl.dataset.col), Number(hexEl.dataset.row))) {
+    const col = Number(hexEl.dataset.col);
+    const row = Number(hexEl.dataset.row);
+    return attempt(() => placeRecruit(state, col, row));
   }
   resetPicks();
   draw();
@@ -337,6 +357,15 @@ bonusEl.addEventListener('click', (event) => {
 });
 
 modesEl.addEventListener('click', (event) => {
+  const shellButton = event.target.closest('[data-shell]');
+  if (shellButton) {
+    if (!shellButton.disabled) {
+      shellMode = shellButton.dataset.shell === '1';
+      selectedId = null;
+      draw();
+    }
+    return;
+  }
   const button = event.target.closest('[data-mode]');
   if (!button || button.disabled) return;
   const mode = button.dataset.mode;

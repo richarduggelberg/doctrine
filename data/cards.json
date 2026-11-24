@@ -11,20 +11,16 @@
   "suits": { "S": "aggressive", "C": "defensive", "D": "reorganizational", "H": "willingness" },
   "doctrineShift": [-2, -1, 0, 1],
   "surrender": {
-    "thresholdMin": 56,
-    "thresholdMax": 72,
-    "battleWeight": 2,
-    "homeHexWeight": 1,
-    "capitalWeight": 3,
+    "threshold": 55,
+    "turnTick": 1,
     "townWeight": 1,
-    "bigTownWeight": 2,
-    "willingnessThreshold": 2,
-    "publicResolve": 2
+    "bigTownWeight": 1
   },
   "maxLevel": 3,
+  "recruits": [1, 1, 2, 3],
   "doctrine": {
-    "A": { "public": true, "cards": { "willingness": 3, "defensive": 2, "reorganizational": 1, "aggressive": 0 } },
-    "B": { "public": true, "cards": { "aggressive": 3, "reorganizational": 2, "defensive": 1, "willingness": 0 } }
+    "A": { "cards": { "willingness": 3, "defensive": 2, "reorganizational": 1, "aggressive": 0 } },
+    "B": { "cards": { "aggressive": 3, "reorganizational": 2, "defensive": 1, "willingness": 0 } }
   },
   "orders": {
     "aggressive": {
@@ -32,12 +28,12 @@
       "kind": "attack",
       "points": [0, 2, 3, 4, 5, 6],
       "extraCost": 2,
-      "text": "One stack attacks an adjacent enemy for free. {points} points: +1 strength each, or {extraCost} for another attack.",
+      "text": "One stack attacks an adjacent enemy for free. {points} points: +1 strength each, or {extraCost} for another attack, or shell an adjacent enemy stack (1 point + its trench chips: -1 man, no loss to you, never below 2 men).",
       "faces": {
-        "J": { "name": "Surprise", "fx": { "ignoreTrenches": true }, "text": "Trench chips do not count for the defender." },
+        "J": { "name": "Surprise", "fx": { "ignoreTrenches": true }, "text": "Trench chips do not count for the defender, in attacks or for the cost of shelling." },
         "Q": { "name": "Combined arms", "fx": { "extraCost": 1 }, "text": "Extra attacks cost only 1 point." },
         "K": { "name": "No quarter", "fx": { "noRetreat": true }, "text": "A beaten defender cannot retreat." },
-        "A": { "name": "Breakthrough", "fx": { "breakthrough": true }, "text": "A winner is not spent, and the loser loses 1 more man." }
+        "A": { "name": "Breakthrough", "fx": { "breakthrough": true }, "text": "The loser loses 1 more man." }
       }
     },
     "defensive": {
@@ -74,15 +70,14 @@
       "name": "Home Front",
       "kind": "homefront",
       "points": [2, 3, 3, 4, 5, 5],
-      "propaganda": 1,
-      "relief": 2,
-      "menu": { "propaganda": 1, "relief": 1, "recruit": 2 },
-      "text": "{points} points: propaganda +{propaganda} resolve (1), relief -{relief} war weariness (1), recruit +1 man in a home stack (2).",
+      "relief": 1,
+      "menu": { "relief": 1, "recruit": 2 },
+      "text": "{points} points: relief -{relief} exhaustion (1), recruit +1 man in a home stack (2).",
       "faces": {
-        "J": { "name": "Propaganda drive", "fx": { "propaganda": 2 }, "text": "Propaganda gives +2 resolve." },
-        "Q": { "name": "Relief effort", "fx": { "relief": 4 }, "text": "Relief removes 4 war weariness." },
+        "J": { "name": "War bonds", "fx": { "relief": 2 }, "text": "Relief removes 2 exhaustion." },
+        "Q": { "name": "Relief effort", "fx": { "relief": 3 }, "text": "Relief removes 3 exhaustion." },
         "K": { "name": "Conscription", "fx": { "costs": { "recruit": 1 } }, "text": "Recruits cost 1 point." },
-        "A": { "name": "Total war", "fx": { "propaganda": 2, "relief": 4, "costs": { "recruit": 1 } }, "text": "All three: strong propaganda and relief, cheap recruits." }
+        "A": { "name": "Total war", "fx": { "relief": 3, "costs": { "recruit": 1 } }, "text": "Strong relief and cheap recruits." }
       }
     }
   }

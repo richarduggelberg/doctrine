@@ -1,17 +1,21 @@
-// Bot-vs-bot balance check: node tools/simulate.mjs [games] [maxTurns] [slackPerWeariness]
+// Bot-vs-bot balance check: node tools/simulate.mjs [games] [maxTurns] [slackPerExhaustion]
 import { readFileSync } from 'node:fs';
 import {
   applyPool, applyToStack, attack, cardIssue, chooseMode, createGame, discardCard, eligibleStacks,
   endOrder, endTurn, fortification, getStack, isFace, legalAttacks, legalMerges, legalMoves,
-  maxBonus, mergeStacks, moveStack, pairIssue, playCard, resolveHold, resolveRetreat, retreatOptions, strength,
+  maxBonus, mergeStacks, moveStack, pairIssue, placeRecruit, playCard, recruitSites, resolveHold, resolveRetreat, retreatOptions, shell, shellCost,
+  shellTargets, strength,
 } from '../js/engine.js';
 import { distance } from '../js/hex.js';
 
 const read = (path) => JSON.parse(readFileSync(new URL(path, import.meta.url)));
 const map = read('../data/map.json');
 const config = read('../data/cards.json');
-// Tuning knobs for experiments: THRESH=min,max  MIRROR=1 gives both nations the doctrine of A.
-if (process.env.THRESH) [config.surrender.thresholdMin, config.surrender.thresholdMax] = process.env.THRESH.split(',').map(Number);
+// Tuning knobs for experiments: THRESH=n  MIRROR=1 gives both nations the doctrine of A.
+if (process.env.THRESH) config.surrender.threshold = Number(process.env.THRESH);
+// TURNTICK=n overrides the flat exhaustion each nation gains per turn; RELIEF=n the base relief of a Home Front card.
+if (process.env.TURNTICK) config.surrender.turnTick = Number(process.env.TURNTICK);
+if (process.env.RELIEF) config.orders.willingness.relief = Number(process.env.RELIEF);
 if (process.env.MIRROR) config.doctrine.B = structuredClone(config.doctrine.A);
 // TOWNW=small,big overrides the exhaustion a lost town costs each turn.
 if (process.env.TOWNW) [config.surrender.townWeight, config.surrender.bigTownWeight] = process.env.TOWNW.split(',').map(Number);
@@ -21,7 +25,7 @@ if (process.env.DOCB) {
 }
 const games = Number(process.argv[2] ?? 300);
 const maxTurns = Number(process.argv[3] ?? 80);
-const SLACK_PER_WEARINESS = Number(process.argv[4] ?? 3);
+const SLACK_PER_EXHAUSTION = Number(process.argv[4] ?? 3);
 
 const enemyOf = (state) => state.stacks.filter((s) => s.owner !== state.current);
 const nearestEnemy = (state, hex) => Math.min(...enemyOf(state).map((e) => distance(hex, e)));
@@ -88,20 +92,26 @@ function poolStep(state) {
     }
     return null;
   }
-  // Home front: relief when weary, a recruit when there is spare strength to add, otherwise propaganda.
-  if (state.weariness[owner] > 0 && a.points >= menu.relief) return applyPool(state, 'relief');
+  // Home front: relief when exhausted, otherwise a recruit when there is spare strength to add.
+  if (state.exhaustion[owner] > 0 && a.points >= menu.relief) return applyPool(state, 'relief');
   if (a.points >= menu.recruit) {
     const recruiting = chooseMode(state, 'recruit');
     const target = eligibleStacks(recruiting).filter(front).sort((x, y) => x.men - y.men)[0];
     if (target) return applyToStack(recruiting, target.id);
   }
-  return a.points >= menu.propaganda ? applyPool(state, 'propaganda') : null;
+  return null;
 }
 
 // Use the active order sensibly; null if nothing is worthwhile.
 function act(state) {
   if (state.active.kind === 'attack') {
-    const pick = bestAttack(state, Math.floor(state.weariness[state.current] / SLACK_PER_WEARINESS));
+    const pick = bestAttack(state, Math.floor(state.exhaustion[state.current] / SLACK_PER_EXHAUSTION));
+    // Without a winning attack in reach, bombard the weakest-protected enemy first to soften it up.
+    const targets = process.env.SHELL === '0' ? [] : shellTargets(state);
+    if (targets.length && (!pick || pick.score < 100)) {
+      const cheapest = targets.sort((a, b) => shellCost(state, a) - shellCost(state, b) || b.men - a.men)[0];
+      return shell(state, cheapest.id);
+    }
     if (!pick) return null;
     const next = attack(state, pick.stack.id, pick.target.id, pick.bonus);
     return next.pending ? decide(next) : next;
@@ -149,8 +159,17 @@ function candidates(state) {
   return [...pairs.filter(([u]) => state.hands[state.current].find((c) => c.uid === u).suit === 'aggressive'), ...singles];
 }
 
+// Muster recruits in the empty home towns that sit about three hexes behind the enemy front.
+function musterRecruits(state) {
+  while (process.env.RECRUIT !== '0' && recruitSites(state).length) {
+    const site = recruitSites(state).sort((a, b) => Math.abs(nearestEnemy(state, a) - 3) - Math.abs(nearestEnemy(state, b) - 3))[0];
+    state = placeRecruit(state, site.col, site.row);
+  }
+  return state;
+}
+
 function takeTurn(state) {
-  state = freeMoves(state);
+  state = freeMoves(musterRecruits(state));
   let anyActed = false;
   for (let guard = 0; guard < 4 && state.played < state.cardsPerTurn && !state.over; guard++) {
     let acted = false;
@@ -183,11 +202,9 @@ function takeTurn(state) {
 const results = [];
 for (let seed = 1; seed <= games; seed++) {
   let state = createGame(map, config, seed);
-  let captures = 0;
   while (!state.over && state.turn <= maxTurns) {
     state = takeTurn(state);
     if (state.over) break;
-    if (state.captured) captures += 1;
     state = endTurn(state);
   }
   results.push({
@@ -195,14 +212,14 @@ for (let seed = 1; seed <= games; seed++) {
     reason: state.over?.reason ?? 'turn limit',
     turns: state.turn,
     casualties: { ...state.casualties },
-    captures,
+    exhaustion: { ...state.exhaustion },
     log: state.log,
   });
 }
 
 // STATS=1 prints how often each kind of event occurred across all games.
 if (process.env.STATS) {
-  const kinds = ['moved', 'Trench built', 'digs in', 'rallies', 'merges', 'splits', 'rail', 'propaganda', 'relief',
+  const kinds = ['moved', 'Trench built', 'digs in', 'rallies', 'merges', 'splits', 'rail', 'relief',
     'recruit', 'retreats', 'stands', 'upper hand', 'repels', 'stalemate', 'advances'];
   const lines = results.flatMap((r) => r.log);
   console.log(Object.fromEntries(kinds.map((k) => [k, lines.filter((l) => l.includes(k)).length])));
@@ -217,4 +234,4 @@ for (const r of results) reasons[r.reason] = (reasons[r.reason] ?? 0) + 1;
 console.log('reasons:', reasons);
 console.log('avg turns:', avg(results.map((r) => r.turns)));
 console.log('avg casualties A/B:', avg(results.map((r) => r.casualties.A)), avg(results.map((r) => r.casualties.B)));
-console.log('avg capturing turns:', avg(results.map((r) => r.captures)));
+console.log('avg exhaustion A/B:', avg(results.map((r) => r.exhaustion.A)), avg(results.map((r) => r.exhaustion.B)));

@@ -4,7 +4,8 @@ import { readFileSync } from 'node:fs';
 import {
   applyPool, applyToStack, attack, breakScore, cardIssue, chooseMode, countryAt, createGame, discardCard, eligibleStacks, endOrder,
   endTurn, featuresAt, fortification, inBounds, inEnemyZoc, isCutOff, legalAttacks, legalMerges, legalMoves, legalSplits,
-  maxBonus, mergeStacks, moveStack, orderTier, pairIssue, playCard, resolveHold, resolveRetreat, retreatOptions, splitStack,
+  maxBonus, mergeStacks, moveStack, orderTier, pairIssue, playCard, resolveHold, resolveRetreat, retreatOptions, shell, shellCost,
+  shellTargets, splitStack, placeRecruit, recruitSites, recruitsFor,
   stackAt, strength, terrainAt, terrainBonus, territoryOf, townsLost,
 } from '../js/engine.js';
 import { distance, neighbors } from '../js/hex.js';
@@ -14,8 +15,8 @@ const map = read('../data/map.json');
 const config = read('../data/cards.json');
 // Tests pin their own doctrines so they do not depend on the default scenario in cards.json.
 config.doctrine = {
-  A: { public: true, cards: { aggressive: 3, reorganizational: 2, defensive: 1, willingness: 0 } },
-  B: { public: true, cards: { defensive: 3, willingness: 2, reorganizational: 1, aggressive: 0 } },
+  A: { cards: { aggressive: 3, reorganizational: 2, defensive: 1, willingness: 0 } },
+  B: { cards: { defensive: 3, willingness: 2, reorganizational: 1, aggressive: 0 } },
 };
 
 // Put a specific card (suit letter S/C/D/H, rank 2-14) in the current player's hand; hands are otherwise random.
@@ -106,7 +107,6 @@ test('setup: 1914 armies, 5-card hands, and a seeded 52-card deck per player wit
       assert.deepEqual(cards.filter((c) => c.suit === suit).map((c) => c.rank).sort((x, y) => x - y),
         [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]);
     }
-    assert.ok(state.thresholds[p] >= config.surrender.thresholdMin);
   }
   assert.deepEqual(createGame(map, config, 42).hands, state.hands);
   assert.notDeepEqual(createGame(map, config, 43).hands, state.hands);
@@ -177,17 +177,15 @@ test('face cards add abilities: Offensive Surprise, No quarter and Breakthrough'
   const noQuarter = attack(play(duel(5, 3), 'S', 13), 'A1', 'B1');
   assert.equal(noQuarter.pending.winnerId, 'A1');
   assert.deepEqual(retreatOptions(noQuarter), []);
-  // Breakthrough: the loser loses a man more, and the winning stack is not spent.
+  // Breakthrough: the loser loses a man more.
   const advance = (card) => {
-    const won = attack(play(duelWithReserve(6, 4), 'S', card), 'A1', 'B1');
+    const won = attack(play(duelWithReserve(6, 4),     'S', card), 'A1', 'B1');
     const [hex] = retreatOptions(won);
     return resolveRetreat(won, hex.col, hex.row);
   };
   const normal = advance(5);
-  assert.equal(normal.stacks.find((s) => s.id === 'A1').spent, true);
   assert.equal(normal.stacks.find((s) => s.id === 'B1').men, 2);
   const through = advance(14);
-  assert.equal(through.stacks.find((s) => s.id === 'A1').spent, false);
   assert.equal(through.stacks.find((s) => s.id === 'B1').men, 1);
   // Combined arms: extra attacks cost 1 point.
   assert.equal(play(duel(3, 3), 'S', 12).active.extraCost, 1);
@@ -200,23 +198,11 @@ test('face cards add abilities for the other suits', () => {
   assert.equal(applyToStack(chooseMode(play(b, 'C', 13), 'brace'), 'B1').stacks[1].braced, 2, 'Iron wall braces by 2');
   assert.equal(applyToStack(chooseMode(play(duel(3, 3), 'D', 11), 'rail'), 'A1').stacks[0].rail, 3, 'Rail net');
   assert.equal(play(duel(3, 3), 'D', 12).active.points, 5, 'Staff work: 3 points + 2');
-  const wearied = structuredClone(b);
-  wearied.weariness.B = 6;
-  assert.equal(applyPool(play(wearied, 'H', 12), 'relief').weariness.B, 2, 'Relief effort removes 4');
-  assert.equal(applyPool(play(b, 'H', 11), 'propaganda').resolve.B, b.resolve.B + 2, 'Propaganda drive');
+  const tired = structuredClone(b);
+  tired.exhaustion.B = 6;
+  assert.equal(applyPool(play(tired, 'H', 12), 'relief').exhaustion.B, 3, 'Relief effort removes 3');
+  assert.equal(applyPool(play(tired, 'H', 11), 'relief').exhaustion.B, 4, 'War bonds removes 2');
   assert.equal(chooseMode(play(b, 'H', 13), 'recruit').active.menu.recruit, 1, 'Conscription');
-});
-
-test('doctrine sets hidden thresholds (willingness) and the declared-doctrine resolve bonus', () => {
-  const state = createGame(map, config, 11);
-  const { thresholdMin, thresholdMax, willingnessThreshold, publicResolve } = config.surrender;
-  const bonus = config.doctrine.B.cards.willingness * willingnessThreshold;
-  assert.ok(state.thresholds.A >= thresholdMin && state.thresholds.A <= thresholdMax);
-  assert.ok(state.thresholds.B >= thresholdMin + bonus && state.thresholds.B <= thresholdMax + bonus);
-  assert.deepEqual(state.resolve, { A: publicResolve, B: publicResolve });
-  const secret = structuredClone(config);
-  secret.doctrine.A.public = false;
-  assert.deepEqual(createGame(map, secret, 11).resolve, { A: 0, B: publicResolve });
 });
 
 test('an Offensive card needs a stack that can attack an adjacent enemy', () => {
@@ -302,7 +288,6 @@ test('terrain, trenches and bracing add to defense; a tie is a stalemate with at
   const tie = fight(3, 3);
   assert.equal(tie.pending, null);
   assert.deepEqual(tie.stacks.map((s) => [s.men, s.col]), [[2, 1], [2, 2]]);
-  assert.deepEqual(tie.battlesLost, { A: 0, B: 0 });
   assert.equal(tie.casualties.A + tie.casualties.B, 2);
   const rough = duel(4, 3, { '2,2': 'rough' });
   assert.equal(strength(rough, rough.stacks[1], true), 4);
@@ -319,14 +304,13 @@ test('a repulsed attacker pays only attrition; the defender gains no gear and no
   assert.equal(state.stacks.find((s) => s.id === 'A1').men, 2);
   const defender = state.stacks.find((s) => s.id === 'B1');
   assert.deepEqual([defender.men, defender.gear, defender.col], [4, 0, 2]);
-  assert.deepEqual(state.battlesLost, { A: 1, B: 0 });
 });
 
-test('with the upper hand the attacker gains gear; the defender loses a man and may retreat', () => {
+test('the attacker gains gear only when it displaces the defender; the defender loses a man and may retreat', () => {
   let state = fight(5, 3);
   assert.equal(state.pending.winnerId, 'A1');
   assert.equal(state.stacks[0].men, 4);
-  assert.equal(state.stacks[0].gear, 1);
+  assert.equal(state.stacks[0].gear, 0, 'no gear until the hex is taken');
   assert.equal(state.stacks[1].men, 2); // attrition
   const options = retreatOptions(state);
   assert.ok(options.length > 0);
@@ -334,9 +318,14 @@ test('with the upper hand the attacker gains gear; the defender loses a man and 
   state = resolveRetreat(state, options[0].col, options[0].row);
   assert.equal(state.stacks.find((s) => s.id === 'B1').men, 1); // no gear: the retreat costs a man
   assert.deepEqual([state.stacks[0].col, state.stacks[0].row], [2, 2]);
+  assert.equal(state.stacks[0].gear, 1);
   assert.equal(state.pending, null);
-  assert.equal(state.battlesLost.B, 1);
   assert.equal(state.casualties.A + state.casualties.B, 3);
+
+  // A defender that stands its ground keeps the hex, so the attacker gains nothing.
+  const held = resolveHold(fight(5, 3));
+  assert.equal(held.stacks.find((s) => s.id === 'A1').gear, 0);
+  assert.deepEqual([held.stacks.find((s) => s.id === 'A1').col, held.stacks.find((s) => s.id === 'B1').col], [1, 2]);
 });
 
 test('experience never exceeds men: it is capped when gained and shed when men are lost', () => {
@@ -512,15 +501,14 @@ test('Logistics: merge and split cost 1 point each, rally 2; level sets the pool
   assert.throws(() => chooseMode(play(setDoctrine(base, 'A', { reorganizational: 0 }), 'D', 5), 'rally'));
 });
 
-test('Home Front: propaganda, relief and recruits scale with doctrine', () => {
+test('Home Front: relief and recruits scale with doctrine', () => {
   const state = endTurn(duel(3, 3)); // Player B: willingness 2 = tier 1 for a 5 = 3 points
-  state.weariness.B = 1;
-  const before = state.resolve.B;
-  let front = applyPool(play(state, 'H', 5), 'propaganda');
-  assert.equal(front.resolve.B, before + 1);
+  state.exhaustion.B = 1;
+  let front = applyPool(play(state, 'H', 5), 'relief');
+  assert.equal(front.exhaustion.B, 0);
   assert.equal(front.active.points, 2);
   front = applyPool(front, 'relief');
-  assert.equal(front.weariness.B, 0, 'relief cannot go below zero');
+  assert.equal(front.exhaustion.B, 0, 'relief cannot go below zero');
   assert.equal(front.active.points, 1);
   assert.throws(() => chooseMode(front, 'recruit'), /Not enough/);
   const recruit = applyToStack(chooseMode(play(state, 'H', 5), 'recruit'), 'B1');
@@ -549,7 +537,7 @@ test('ending a turn refills the hand, resets plays and switches player', () => {
 
 test('each player\'s discard pile is reshuffled into their own deck when it runs out', () => {
   let state = createGame(map, config, 3);
-  state.thresholds = { A: 999, B: 999 }; // weariness grows every turn; keep the surrender check harmless
+  state.surrender.threshold = 99999; // exhaustion grows every turn; keep the surrender check harmless
   for (let i = 0; i < 200; i++) { // each player draws 1 card a turn from 47, so discards must be reshuffled
     state = discardCard(state, state.hands[state.current][0].uid);
     state = endTurn(state);
@@ -562,31 +550,23 @@ test('each player\'s discard pile is reshuffled into their own deck when it runs
   }
 });
 
-test('break score counts casualties, lost battles and lost home ground, minus resolve', () => {
+test('the exhaustion meter is casualties plus accumulated ticks, and relief cannot cut casualties', () => {
   const state = duel(3, 3);
-  state.resolve.A = 0; // ignore the declared-doctrine bonus
   assert.equal(breakScore(state, 'A'), 0);
   state.casualties.A = 4;
-  state.battlesLost.A = 1;
-  assert.equal(breakScore(state, 'A'), 6);
-  state.stacks.find((s) => s.id === 'B1').col = 1; // enemy on A's starting hex (1,2)
-  state.stacks.find((s) => s.id === 'A1').col = 3;
+  state.exhaustion.A = 3;
   assert.equal(breakScore(state, 'A'), 7);
-  state.stacks.find((s) => s.id === 'B1').col = 0;
-  state.stacks.find((s) => s.id === 'B1').row = 0; // enemy on A's capital
-  assert.equal(breakScore(state, 'A'), 6 + config.surrender.capitalWeight);
-  state.resolve.A = 100;
-  assert.equal(breakScore(state, 'A'), 0);
+  assert.equal(breakScore(state, 'B'), 0);
 });
-
 test('a nation breaks at the end of its own turn once its score reaches its threshold', () => {
   let state = createGame(map, config, 5);
-  state.casualties.A = 500; // A is far past any threshold, B is untouched
+  state.casualties.A = 500; // A is far past the threshold, B is untouched
   state = endTurn(state);
   assert.equal(state.over.loser, 'A');
   assert.equal(state.over.winner, 'B');
   assert.match(state.over.reason, /will to fight/);
-  assert.deepEqual(state.thresholds, state.over.thresholds);
+  assert.equal(state.over.threshold, config.surrender.threshold);
+  assert.deepEqual(state.over.scores, { A: breakScore(state, 'A'), B: breakScore(state, 'B') });
   assert.throws(() => endTurn(state));
   assert.throws(() => discardCard(state, state.hands.A[0].uid));
   assert.ok(state.hands.A.every((c) => cardIssue(state, c) === 'The game is over'));
@@ -611,35 +591,84 @@ test('bloodletting: the attacker pays for terrain and trenches, the defender for
   assert.equal(shelled.stacks.find((s) => s.id === 'B1').men, 2); // 1 + 2 offensive points
 });
 
-test('an advancing stack is spent until its owner next turn begins', () => {
-  let state = attack(bare(duelWithReserve(6, 1)), 'A1', 'B1'); // B1 dies, A1 advances
+test('artillery shells an adjacent stack for 1 point plus its trench chips, never below 2 men', () => {
+  const sheller = (a, b, trenches = 0) => {
+    const state = duel(a, b);
+    if (trenches) state.defense['2,2'] = trenches;
+    return play(state, 'S', 8); // tier 3 for A: 4 points
+  };
+  let state = sheller(5, 4);
+  assert.deepEqual(shellTargets(state).map((s) => s.id), ['B1']);
+  state = shell(state, 'B1');
+  const [a, b] = ['A1', 'B1'].map((id) => state.stacks.find((s) => s.id === id));
+  assert.deepEqual([a.men, a.fought, b.men, state.active.points, state.casualties.B], [5, false, 3, 3, 1]);
+  state = shell(state, 'B1');
+  assert.equal(state.stacks.find((s) => s.id === 'B1').men, 2);
+  assert.deepEqual(shellTargets(state), [], 'a stack of 2 men is beyond artillery');
+  assert.throws(() => shell(state, 'B1'));
+
+  // Each trench chip on the target hex adds a point to the price; Surprise ignores them.
+  const dug = sheller(5, 4, 2);
+  assert.equal(shellCost(dug, dug.stacks[1]), 3);
+  assert.equal(shell(dug, 'B1').active.points, 1);
+  const surprise = play(Object.assign(duel(5, 4), { defense: { '2,2': 2 } }), 'S', 11);
+  assert.equal(shellCost(surprise, surprise.stacks[1]), 1);
+  // Not affordable, or not adjacent.
+  assert.deepEqual(shellTargets(sheller(5, 4, 4)), []);
+  const gap = sheller(5, 4);
+  gap.stacks[1].col = 4;
+  assert.deepEqual(shellTargets(gap), []);
+  // Shelling does not use up the attack: both are paid from the same points.
+  const combined = duelWithReserve(6, 4);
+  const after = attack(shell(play(combined, 'S', 8), 'B1'), 'A1', 'B1', 2);
+  assert.equal(after.casualties.B, 4, 'one shelled man, then 1 + 2 offensive points');
+  // After a first attack the points must still cover the extra attack; shelling can spend them below that.
+  const pair = duelWithReserve(4, 9);
+  const spot = neighbors(2, 2).find((h) => inBounds(pair, h.col, h.row) && !stackAt(pair, h.col, h.row));
+  pair.stacks.push({ ...structuredClone(pair.stacks[0]), id: 'A2', col: spot.col, row: spot.row });
+  let volley = attack(play(pair, 'S', 8), 'A1', 'B1');
+  assert.deepEqual(legalAttacks(volley, 'A2').map((s) => s.id), ['B1'], '4 points pay the extra attack');
+  for (let i = 0; i < 3; i++) volley = shell(volley, 'B1');
+  assert.equal(volley.active.points, 1);
+  assert.deepEqual(legalAttacks(volley, 'A2'), [], 'one point no longer buys the extra attack');
+});
+
+test('an empty hex keeps at most one trench chip, however the stack left it', () => {
+  // Walked away.
+  const walker = gapDuel(5, 4);
+  walker.defense['1,2'] = 3;
+  const [hex] = legalMoves(walker, 'A1');
+  assert.equal(moveStack(walker, 'A1', hex.col, hex.row).defense['1,2'], 1);
+  assert.equal(walker.defense['1,2'], 3, 'a stack that stays keeps its trenches');
+  // Retreated: the winner moves into a hex with a single chip.
+  const dug = bare(duelWithReserve(9, 3));
+  dug.defense['2,2'] = 3;
+  let state = attack(dug, 'A1', 'B1');
+  const [out] = retreatOptions(state);
+  state = resolveRetreat(state, out.col, out.row);
+  assert.equal(state.defense['2,2'], 1);
+  // Destroyed.
+  const wiped = bare(duelWithReserve(9, 1));
+  wiped.defense['2,2'] = 3;
+  assert.equal(attack(wiped, 'A1', 'B1').defense['2,2'], 1);
+});
+
+test('an attacker that wins an empty hex advances into it at full strength', () => {
+  const state = attack(bare(duelWithReserve(6, 1)), 'A1', 'B1'); // B1 dies, A1 advances
   const attacker = state.stacks.find((s) => s.id === 'A1');
-  assert.equal(attacker.spent, true);
-  assert.equal(strength(state, attacker, false), attacker.men + attacker.gear - 1);
-  state = endTurn(state); // B's turn: A1 is still spent
-  assert.equal(state.stacks.find((s) => s.id === 'A1').spent, true);
-  state = endTurn(state);
-  assert.equal(state.stacks.find((s) => s.id === 'A1').spent, false);
+  assert.equal(attacker.col, 2);
+  assert.equal(strength(state, attacker, false), attacker.men + attacker.gear);
 });
 
-test('war weariness grows on turns without a capture and resets when ground is taken', () => {
+test('every turn costs a nation a flat tick of exhaustion, and lost towns add to it', () => {
   let state = duel(3, 3);
-  state.resolve.A = 0;
+  const tick = config.surrender.turnTick;
   state = endTurn(state);
-  assert.equal(state.weariness.A, 1);
-  assert.equal(breakScore(state, 'A'), 1);
-  state = endTurn(endTurn(state));
-  assert.equal(state.weariness.A, 2);
-});
-
-test('capturing a hex resets war weariness', () => {
-  let state = duelWithReserve(6, 1);
-  state.weariness.A = 5;
-  state = attack(bare(state), 'A1', 'B1');
+  assert.deepEqual(state.exhaustion, { A: tick, B: 0 }, 'a nation ticks at the end of its own turn');
   state = endTurn(state);
-  assert.equal(state.weariness.A, 0);
+  assert.deepEqual(state.exhaustion, { A: tick, B: tick });
+  assert.equal(breakScore(state, 'A'), tick);
 });
-
 test('holding the enemy capital through the enemy turn wins the war outright', () => {
   let state = duel(3, 3);
   const capital = state.capitals.B;
@@ -769,16 +798,19 @@ test('a town starts with its home nation; the enemy takes it by standing on it, 
   assert.equal(townsLost(taken, 'B').length, 1);
   assert.ok(taken.log.some((l) => l.includes('captures Testville')));
 
+  const tick = config.surrender.turnTick;
   const bTurn = endTurn(taken);
   assert.equal(bTurn.exhaustion.B, 0, 'the tick comes at the end of the loser\'s own turn');
   const again = endTurn(bTurn);
-  assert.equal(again.exhaustion.B, 1);
+  assert.equal(again.exhaustion.B, tick + 1, 'the flat tick plus 1 for the lost city');
   assert.ok(breakScore(again, 'B') > breakScore(bTurn, 'B'), 'exhaustion counts towards the break score');
-  assert.equal(endTurn(endTurn(again)).exhaustion.B, 2, 'and it keeps ticking while the town stays lost');
-  assert.equal(again.exhaustion.A, 0);
+  assert.equal(endTurn(endTurn(again)).exhaustion.B, 2 * (tick + 1), 'and it keeps ticking while the town stays lost');
+  assert.equal(again.exhaustion.A, tick, 'A pays only the flat tick');
 
-  const big = endTurn(endTurn(moveStack(townGame('big'), 'A1', 2, 2)));
-  assert.equal(big.exhaustion.B, 2, 'a big town costs more');
+  const heavy = townGame('big');
+  heavy.surrender.bigTownWeight = 2;
+  const big = endTurn(endTurn(moveStack(heavy, 'A1', 2, 2)));
+  assert.equal(big.exhaustion.B, tick + 2, 'a big town can be weighted more than a small one');
 });
 
 // A1 sits at (1,2) behind a wall of B stacks at column 2; A's capital is out of reach on the far side.
@@ -815,4 +847,68 @@ test('a surrounded stack loses a gear chip on each of its own turns, then a man 
   state = turn(state);
   assert.deepEqual([a(state).men, a(state).gear], [2, 0]);
   assert.equal(a(turn(surrounded(0))).men, 3, 'with no gear a man is lost straight away');
+});
+
+// A 9x5 map: columns 0-3 are Player A's. A holds the towns (1,1), (3,0) and (2,3) (where A1 stands); B has (6,2).
+function muster() {
+  return createGame(
+    {
+      cols: 9,
+      rows: 5,
+      borderCol: 3,
+      terrain: {},
+      places: [
+        { name: 'Alpha', col: 1, row: 1, size: 'town' },
+        { name: 'Beta', col: 3, row: 0, size: 'town' },
+        { name: 'Gamma', col: 2, row: 3, size: 'city' },
+        { name: 'Delta', col: 6, row: 2, size: 'town' },
+      ],
+      capitals: { A: { col: 0, row: 0 }, B: { col: 8, row: 4 } },
+      stacks: [
+        { owner: 'A', col: 2, row: 3, men: 3 },
+        { owner: 'B', col: 8, row: 0, men: 3 },
+      ],
+    },
+    config,
+  );
+}
+
+test('the Willingness doctrine level sets how many recruits a nation musters each turn', () => {
+  const state = muster();
+  const counts = [0, 1, 2, 3].map((level) => recruitsFor(setDoctrine(state, 'A', { willingness: level }), 'A'));
+  assert.deepEqual(counts, [1, 1, 2, 3]);
+  assert.equal(state.recruits.A, 1, 'the first player starts with its recruits');
+  assert.equal(state.recruits.B, 0);
+  assert.equal(endTurn(state).recruits.B, 2, 'B has Willingness 2 in the test doctrines');
+});
+
+test('recruits muster as 1-man stacks in empty home towns, and unplaced ones are lost', () => {
+  const state = muster();
+  assert.deepEqual(recruitSites(state).map((h) => h.name), ['Alpha', 'Beta'], 'not the occupied or the enemy town');
+  assert.throws(() => placeRecruit(state, 2, 3), /Cannot muster/);
+  assert.throws(() => placeRecruit(state, 6, 2), /Cannot muster/);
+
+  const placed = placeRecruit(state, 1, 1);
+  const fresh = placed.stacks.find((s) => s.id === 'A2');
+  assert.deepEqual([fresh.owner, fresh.men, fresh.gear, fresh.col, fresh.row], ['A', 1, 0, 1, 1]);
+  assert.equal(placed.recruits.A, 0);
+  assert.deepEqual(recruitSites(placed), [], 'no recruits left to place');
+  assert.throws(() => placeRecruit(placed, 3, 0), /Cannot muster/);
+
+  const taken = structuredClone(state);
+  taken.towns.find((t) => t.name === 'Beta').holder = 'B';
+  assert.deepEqual(recruitSites(taken).map((h) => h.name), ['Alpha'], 'a town the enemy holds cannot take recruits');
+
+  const later = endTurn(endTurn(state));
+  assert.equal(later.recruits.A, 1, 'unplaced recruits do not pile up');
+  assert.equal(later.stacks.length, 2);
+});
+
+test('no recruits are mustered where the new stack would be surrounded', () => {
+  const state = surrounded(0);
+  state.towns = [{ name: 'Trapped', col: 0, row: 3, size: 'town', home: 'A', holder: 'A' }];
+  assert.equal(state.recruits.A, 1);
+  assert.deepEqual(recruitSites(state), []);
+  state.stacks = state.stacks.filter((s) => s.owner === 'A');
+  assert.equal(recruitSites(state).length, 1, 'with the wall gone the town is fine');
 });

@@ -11,6 +11,8 @@ export const TERRAIN_BONUS = {
   river: 1, bigriver: 2, city: 1, bigcity: 2, fortress: 2,
 };
 export const MIN_ATTACKER_MEN = 2;
+// Artillery cannot finish a stack off: a stack of this many men or fewer is beyond its reach.
+export const SHELL_FLOOR = 2;
 export const HOLD_LOSS = 1; // on top of the attrition man: standing costs 2 men in total
 
 // Pool orders hold points that are spent one menu entry at a time (see `menu` in cards.json).
@@ -51,7 +53,7 @@ export function orderInfo(state, owner, cards) {
   for (const [field, spec] of Object.entries(def)) {
     if (typeof spec === 'number' || Array.isArray(spec)) values[field] = at(spec, tier);
   }
-  for (const field of ['extraCost', 'railHexes', 'braceAmount', 'propaganda', 'relief']) {
+  for (const field of ['extraCost', 'railHexes', 'braceAmount', 'relief']) {
     if (fx[field] !== undefined) values[field] = fx[field];
   }
   if (values.points !== undefined) values.points += fx.bonusPoints ?? 0;
@@ -93,6 +95,16 @@ export function countryAt(state, col, row) {
   return state.countries?.[row]?.[col] ?? null;
 }
 
+// Trenches only hold while someone is in them: an empty hex keeps at most one chip, however it was vacated
+// (walked off, retreated, merged away or destroyed).
+export const EMPTY_HEX_TRENCHES = 1;
+function trimTrenches(state) {
+  const occupied = new Set(state.stacks.map((s) => key(s.col, s.row)));
+  for (const hex of Object.keys(state.defense)) {
+    if (!occupied.has(hex) && state.defense[hex] > EMPTY_HEX_TRENCHES) state.defense[hex] = EMPTY_HEX_TRENCHES;
+  }
+}
+
 // Towns: every named place on a player's own soil starts in that player's hands. A stack of the other player
 // standing on it takes it, and it stays taken until someone else's stack stands there. Neutral towns never change hands.
 export function updateTowns(state) {
@@ -115,17 +127,10 @@ export function townWeight(state, town) {
   return town.size === 'big' ? state.surrender.bigTownWeight : state.surrender.townWeight;
 }
 
-// Break score: how close a nation is to giving up. Public information (casualties,
-// lost battles, lost home ground); only the threshold it is compared with is hidden.
+// Exhaustion meter: how close a nation is to giving up. Public and compared with one fixed threshold. It is the men
+// the nation has lost plus the accumulated ticks (a flat tick every turn and one per town lost), less relief.
 export function breakScore(state, owner) {
-  const s = state.surrender;
-  let score = state.casualties[owner] + s.battleWeight * state.battlesLost[owner] + state.weariness[owner] + state.exhaustion[owner];
-  for (const stack of state.stacks) {
-    if (stack.owner === owner || territoryOf(state, stack.col, stack.row) !== owner) continue;
-    const cap = state.capitals[owner];
-    score += stack.col === cap.col && stack.row === cap.row ? s.capitalWeight : s.homeHexWeight;
-  }
-  return Math.max(0, score - state.resolve[owner]);
+  return state.casualties[owner] + state.exhaustion[owner];
 }
 
 function endGame(state, loser, reason) {
@@ -134,7 +139,7 @@ function endGame(state, loser, reason) {
     winner: PLAYERS.find((p) => p !== loser),
     reason,
     scores: Object.fromEntries(PLAYERS.map((p) => [p, breakScore(state, p)])),
-    thresholds: { ...state.thresholds },
+    threshold: state.surrender.threshold,
   };
   state.log.push(`Player ${loser} surrenders (${reason}). Player ${state.over.winner} wins.`);
 }
@@ -162,7 +167,6 @@ export function createGame(map, config, seed = 1) {
     army: s.army ?? null, // historical name, display only
     gear: 0,
     braced: 0,
-    spent: false,
     moved: 0,
     rail: 0,
     halted: false,
@@ -209,34 +213,20 @@ export function createGame(map, config, seed = 1) {
     current: PLAYERS[0],
     turn: 1,
     casualties: { A: 0, B: 0 },
-    battlesLost: { A: 0, B: 0 },
-    // War weariness: +1 for each of a nation's turns that ends without capturing a hex; a capture resets it.
-    weariness: { A: 0, B: 0 },
-    // Exhaustion: a constant tick at the end of each of a nation's turns for every town the enemy holds. It never resets.
+    // Exhaustion: ticks at the end of each of a nation's turns (a flat one, plus one per town the enemy holds); relief eases it.
     exhaustion: { A: 0, B: 0 },
     towns: (map.places ?? []).map((p) => ({ ...p, home: null, holder: null })),
-    captured: false,
+    // Recruits: men a nation may muster in empty home towns this turn, by Willingness level.
+    recruitTable: [...(config.recruits ?? [0])],
+    recruits: { A: 0, B: 0 },
     // A stack on the enemy capital is 'armed'; if it is still there when the enemy's turn ends, the war is won.
     siege: { A: null, B: null },
-    resolve: { A: 0, B: 0 },
     surrender: { ...config.surrender },
-    thresholds: {},
     over: null,
     pending: null,
     log: ['Game start. Player A moves first.'],
   };
-  const { thresholdMin, thresholdMax, willingnessThreshold, publicResolve } = config.surrender;
   for (const town of state.towns) town.holder = town.home = territoryOf(state, town.col, town.row);
-  for (const owner of PLAYERS) {
-    const willingness = state.doctrine[owner].cards.willingness ?? 0;
-    const base = thresholdMin + Math.floor(nextRandom(state) * (thresholdMax - thresholdMin + 1));
-    state.thresholds[owner] = base + willingnessThreshold * willingness;
-    // A declared (face-up) doctrine rallies the nation; a secret one keeps the enemy guessing.
-    if (state.doctrine[owner].public) {
-      state.resolve[owner] = publicResolve;
-      state.log.push(`Player ${owner} declares its doctrine openly (resolve +${publicResolve})`);
-    }
-  }
   for (const owner of PLAYERS) {
     for (const [initial, suit] of Object.entries(config.suits)) {
       for (let rank = 2; rank <= 14; rank++) {
@@ -246,6 +236,7 @@ export function createGame(map, config, seed = 1) {
     shuffle(state, state.decks[owner]);
     draw(state, owner);
   }
+  state.recruits[state.current] = recruitsFor(state, state.current);
   return state;
 }
 
@@ -281,9 +272,8 @@ export function fortification(state, col, row) {
   return terrainBonus(state, col, row) + (state.defense[key(col, row)] ?? 0);
 }
 
-// A stack that has just advanced is spent: -1 strength until its owner's next turn begins.
 export function strength(state, stack, defending) {
-  const base = stack.men + stack.gear - (stack.spent ? 1 : 0);
+  const base = stack.men + stack.gear;
   if (!defending) return base;
   return base + fortification(state, stack.col, stack.row) + stack.braced;
 }
@@ -574,6 +564,7 @@ export function moveStack(state, id, col, row) {
   stack.braced = 0;
   stack.moved += move.dist;
   if (inEnemyZoc(next, stack.owner, col, row)) stack.halted = true;
+  trimTrenches(next);
   updateTowns(next);
   return next;
 }
@@ -583,6 +574,8 @@ export function legalAttacks(state, id) {
   const stack = getStack(state, id);
   const a = activeFor(state, 'attack', stack);
   if (!a || a.used.includes(id) || stack.men < MIN_ATTACKER_MEN) return [];
+  // Shelling can leave too few points to pay for the second attack the order still has a charge for.
+  if (a.used.length && a.points < a.extraCost) return [];
   return directTargets(state, stack);
 }
 
@@ -601,6 +594,41 @@ function loseMen(state, stack, count) {
   stack.gear = Math.min(stack.gear, stack.men);
   state.casualties[stack.owner] += lost;
   return lost;
+}
+
+// Artillery: while an Offensive order has points left, they can pay to shell an enemy stack touching one of your
+// own. A shelled man costs 1 point plus the trench chips on the target's hex (Surprise ignores them), takes 1 man
+// from the target and costs the shooter nothing; but artillery never reduces a stack below SHELL_FLOOR men.
+export function shellCost(state, target) {
+  const a = state.active;
+  const trenches = a?.fx?.ignoreTrenches ? 0 : state.defense[key(target.col, target.row)] ?? 0;
+  return 1 + trenches;
+}
+
+export function shellTargets(state) {
+  const a = state.active;
+  if (!a || a.kind !== 'attack' || state.pending || state.over) return [];
+  const mine = state.stacks.filter((s) => s.owner === state.current && !isCutOff(state, s));
+  return state.stacks.filter(
+    (t) =>
+      t.owner !== state.current &&
+      t.men > SHELL_FLOOR &&
+      a.points >= shellCost(state, t) &&
+      mine.some((s) => neighbors(s.col, s.row).some((n) => n.col === t.col && n.row === t.row)),
+  );
+}
+
+export function shell(state, targetId) {
+  const target = shellTargets(state).find((t) => t.id === targetId);
+  if (!target) throw new Error(`Cannot shell ${targetId}`);
+  const next = structuredClone(state);
+  const cost = shellCost(next, target);
+  next.active.points -= cost;
+  next.active.acted = true;
+  const victim = getStack(next, targetId);
+  loseMen(next, victim, 1);
+  next.log.push(`${next.current}'s artillery shells ${targetId} (${cost} point${cost === 1 ? '' : 's'}): -1 man, ${victim.men} left`);
+  return next;
 }
 
 export function attack(state, attackerId, defenderId, bonus = 0) {
@@ -631,13 +659,6 @@ export function attack(state, attackerId, defenderId, bonus = 0) {
   const attackerLoss = loseMen(next, attacker, Math.max(1, fortification(next, defender.col, defender.row)));
   const breakthrough = verdict === 'attacker' && a.fx.breakthrough;
   const defenderLoss = loseMen(next, defender, 1 + bonus + (breakthrough ? 1 : 0));
-  // Experience comes from attacking: a defender who holds gains nothing.
-  if (verdict === 'attacker') {
-    attacker.gear = Math.min(attacker.gear + 1, attacker.men);
-    next.battlesLost[defender.owner] += 1;
-  } else if (verdict === 'defender') {
-    next.battlesLost[attacker.owner] += 1;
-  }
   const battle = {
     attackerId,
     defenderId,
@@ -646,7 +667,6 @@ export function attack(state, attackerId, defenderId, bonus = 0) {
     defenderCol: defender.col,
     defenderRow: defender.row,
     noRetreat: Boolean(a.fx.noRetreat),
-    fresh: Boolean(breakthrough),
   };
   const outcome = {
     attacker: `${attackerId} has the upper hand`,
@@ -678,6 +698,8 @@ export function retreatOptions(state) {
 
 function finishBattle(next, battle) {
   next.stacks = next.stacks.filter((s) => s.men > 0);
+  // A retreating or destroyed defender leaves its trenches behind before the winner moves in.
+  trimTrenches(next);
   next.pending = null;
   // An attacker with the upper hand takes the hex if the defender left it or was destroyed.
   const attacker = getStack(next, battle.attackerId);
@@ -688,9 +710,8 @@ function finishBattle(next, battle) {
   ) {
     attacker.col = battle.defenderCol;
     attacker.row = battle.defenderRow;
-    attacker.spent = !battle.fresh;
-    next.captured = true;
-    next.log.push(`${attacker.id} advances to (${attacker.col},${attacker.row})${battle.fresh ? '' : ' and is spent'}`);
+    attacker.gear = Math.min(attacker.gear + 1, attacker.men);
+    next.log.push(`${attacker.id} advances to (${attacker.col},${attacker.row}) and gains experience`);
   }
   updateTowns(next);
   // A nation with no stacks left cannot fight on.
@@ -757,12 +778,12 @@ export function mergeStacks(state, sourceId, targetId) {
   target.men += source.men;
   target.gear += source.gear;
   target.braced = Math.min(target.braced, source.braced);
-  target.spent = target.spent || source.spent;
   target.fought = target.fought || source.fought;
   target.halted = target.halted || source.halted;
   target.moved = Math.max(target.moved, source.moved);
   target.rail = Math.min(target.rail, source.rail);
   next.stacks = next.stacks.filter((s) => s.id !== sourceId);
+  trimTrenches(next);
   next.log.push(`${sourceId} merges into ${targetId} (${target.men} men, ${target.gear} gear)`);
   spend(next, next.active.menu.merge);
   return next;
@@ -787,7 +808,7 @@ export function splitStack(state, id, col, row) {
   const newId = `${stack.owner}${++next.idCounters[stack.owner]}`;
   // The new stack has used its walk getting there.
   next.stacks.push({
-    id: newId, owner: stack.owner, col, row, men: sent, gear: gearSent, braced: 0, spent: false,
+    id: newId, owner: stack.owner, col, row, men: sent, gear: gearSent, braced: 0,
     moved: next.move, rail: 0, halted: false, fought: false, cut: 0,
   });
   next.log.push(`${id} splits: ${newId} (${sent} men${gearSent ? `, ${gearSent} gear` : ''}) at (${col},${row})`);
@@ -796,7 +817,36 @@ export function splitStack(state, id, col, row) {
   return next;
 }
 
-// Pool menu entries that need no target: propaganda and relief on the home front.
+// Free recruits at the start of each of a nation's turns: the Willingness doctrine level indexes `recruits` in cards.json.
+export function recruitsFor(state, owner) {
+  return at(state.recruitTable, doctrineLevel(state, owner, 'willingness'));
+}
+
+// Where the current player may muster a recruit: an empty town on its own soil that the enemy has not taken, and
+// where a new stack would not be cut off from home.
+export function recruitSites(state) {
+  const owner = state.current;
+  if (state.over || state.pending || !(state.recruits[owner] > 0)) return [];
+  return state.towns.filter((t) => t.home === owner && t.holder === owner && !stackAt(state, t.col, t.row)
+    && !isCutOff(state, { owner, col: t.col, row: t.row })).map((t) => ({ col: t.col, row: t.row, name: t.name }));
+}
+
+// A recruit arrives as a new 1-man stack on an empty home town. Recruits not placed by the end of the turn are lost.
+export function placeRecruit(state, col, row) {
+  if (!recruitSites(state).some((h) => h.col === col && h.row === row)) throw new Error(`Cannot muster a recruit at ${col},${row}`);
+  const next = structuredClone(state);
+  const owner = next.current;
+  const id = `${owner}${++next.idCounters[owner]}`;
+  next.recruits[owner] -= 1;
+  next.stacks.push({
+    id, owner, col, row, men: 1, gear: 0, braced: 0, moved: next.move, rail: 0, halted: false, fought: false, cut: 0,
+  });
+  const town = next.towns.find((t) => t.col === col && t.row === row);
+  next.log.push(`${id} (1 recruit) musters at ${town.name} (${next.recruits[owner]} left)`);
+  return next;
+}
+
+// Pool menu entries that need no target: relief on the home front, which eases the nation's exhaustion.
 export function applyPool(state, mode) {
   const a = state.active;
   if (!a || a.kind !== 'homefront' || !(mode in a.menu) || TARGETED.has(mode) || a.points < a.menu[mode] || state.pending) {
@@ -804,15 +854,9 @@ export function applyPool(state, mode) {
   }
   const next = structuredClone(state);
   const owner = next.current;
-  if (mode === 'propaganda') {
-    const gain = a.values.propaganda;
-    next.resolve[owner] += gain;
-    next.log.push(`${owner} propaganda: resolve +${gain}`);
-  } else {
-    const eased = Math.min(a.values.relief, next.weariness[owner]);
-    next.weariness[owner] -= eased;
-    next.log.push(`${owner} relief: war weariness -${eased}`);
-  }
+  const eased = Math.min(a.values.relief, next.exhaustion[owner]);
+  next.exhaustion[owner] -= eased;
+  next.log.push(`${owner} relief: exhaustion -${eased}`);
   spend(next, next.active.menu[mode]);
   return next;
 }
@@ -881,22 +925,18 @@ export function endTurn(state) {
   } else {
     next.siege[ender] = null;
   }
-  // War weariness: a turn without ground captured wears the nation down; a capture restores heart.
-  if (next.captured) next.weariness[ender] = 0;
-  else {
-    next.weariness[ender] += 1;
-    next.log.push(`${ender} gained no ground: war weariness ${next.weariness[ender]}`);
-  }
-  next.captured = false;
-  // Exhaustion: each town the enemy holds costs this nation a little more every turn it stays lost.
+  // Exhaustion: every turn costs a nation `turnTick`, and each town the enemy holds costs it a little more
+  // every turn it stays lost. Casualties add to the meter too (see breakScore).
   const lostTowns = townsLost(next, ender);
-  const tick = lostTowns.reduce((sum, t) => sum + townWeight(next, t), 0);
-  if (tick) {
-    next.exhaustion[ender] += tick;
-    next.log.push(`${ender} has lost ${lostTowns.length} town${lostTowns.length === 1 ? '' : 's'}: exhaustion +${tick}`);
-  }
-  // The nation breaks when its (public) break score reaches its hidden threshold, checked at the end of its own turn.
-  if (breakScore(next, ender) >= next.thresholds[ender]) {
+  const townTick = lostTowns.reduce((sum, t) => sum + townWeight(next, t), 0);
+  const tick = next.surrender.turnTick + townTick;
+  next.exhaustion[ender] += tick;
+  next.log.push(
+    `${ender} exhaustion +${tick}` +
+      (townTick ? ` (${lostTowns.length} town${lostTowns.length === 1 ? '' : 's'} lost)` : ''),
+  );
+  // The nation breaks when its exhaustion meter reaches the fixed threshold, checked at the end of its own turn.
+  if (breakScore(next, ender) >= next.surrender.threshold) {
     endGame(next, ender, 'will to fight broken');
     return next;
   }
@@ -921,6 +961,7 @@ export function endTurn(state) {
     }
   }
   next.stacks = next.stacks.filter((s) => s.men > 0);
+  trimTrenches(next);
   const wiped = PLAYERS.find((p) => !next.stacks.some((s) => s.owner === p));
   if (wiped) {
     endGame(next, wiped, 'all stacks destroyed');
@@ -929,13 +970,14 @@ export function endTurn(state) {
   for (const stack of next.stacks) {
     if (stack.owner === next.current) {
       stack.braced = 0;
-      stack.spent = false;
       stack.moved = 0;
       stack.rail = 0;
       stack.halted = false;
       stack.fought = false;
     }
   }
-  next.log.push(`Turn ${next.turn}: Player ${next.current}`);
+  next.recruits[ender] = 0;
+  next.recruits[next.current] = recruitsFor(next, next.current);
+  next.log.push(`Turn ${next.turn}: Player ${next.current} (${next.recruits[next.current]} recruits to muster)`);
   return next;
 }
