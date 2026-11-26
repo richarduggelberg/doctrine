@@ -792,10 +792,13 @@ M10 - PLAYING CARDS, TIERS, LONGER WALKS (supersedes M3 deck, M9 items 2, 3, 7,
      above it. Tiers never go below 0. Per-tier tables in data/cards.json give
      the points (and trench/rally limit). A split halves both men and gear:
      the new stack takes the lower half (men and gear), the old keeps the rest.
-  4. PAIRS: two number cards (2-10) of one suit may be played together as one
-     order that uses BOTH of the turn's plays. Tier = tier of the summed ranks
-     (capped at 3) + 1, then the doctrine shift. A 2 and a 3 (sum 5) beat
-     either card alone. Face cards and Aces cannot be paired.
+  4. SETS (formerly pairs): any number of cards of one suit may be played
+     together as one order; faces and Aces may join but lose their abilities
+     (they count as their tier). Each card's points (tier table, doctrine
+     shift per card) add up, plus 1 for each card beyond the first; the
+     trench/rally limit comes from the strongest card. A 2 and a 3 (2 + 2 + 1
+     = 5 spade points at tier +1) beat either card alone. The set uses all its
+     cards but counts as one order (see items 18 and 20).
   5. FACE CARDS (J, Q, K, A) add an ability on top of their tier:
        Spades    J Surprise (defender's trench chips do not count)
                  Q Combined arms (extra attacks cost 1 point)
@@ -814,12 +817,13 @@ M10 - PLAYING CARDS, TIERS, LONGER WALKS (supersedes M3 deck, M9 items 2, 3, 7,
      Doctrine governs the points, so a nation with no aggressive doctrine
      gets a bare attack from every spade.
   7. WALKING: every stack walks 2 hexes per turn without a card (rail adds
-     more). Entering an enemy zone of control is free but ends the walk; a
-     stack that starts inside a zone can only step out of it to a hex outside
-     every zone. A stack that fought cannot walk. Contact on turn 1 is
-     therefore possible. The whole walk is one move: selecting a stack
+     more). Entering an enemy zone of control is free but ends the walk, and
+     so does entering a hex with terrain or trench chips (rail ignores that
+     second stop); a stack that starts inside a zone can only step out of it
+     to a hex outside every zone. A stack that fought cannot walk. Contact on
+     turn 1 is therefore possible. The whole walk is one move: selecting a stack
      highlights every hex within reach (up to 2 hexes, 2 + rail with rail)
-     and one click on any of them moves the stack there; a zone hex is only
+     and one click on any of them moves the stack there; a zone or rough hex is only
      ever the last step of a path.
   8. DEFENDERS AND GEAR: nobody gains gear for merely winning or holding. A
      defender who holds or repels an attack gains nothing; the attacker gains
@@ -857,11 +861,10 @@ M10 - PLAYING CARDS, TIERS, LONGER WALKS (supersedes M3 deck, M9 items 2, 3, 7,
      beats naive bots that do not defend. Needs human playtests before any
      tuning; candidate knobs are the surrender thresholds per nation.
  13. ARTILLERY AND EMPTY TRENCHES.
-  - Shelling: during an active Offensive (spade) order, instead of an assault
-    the player may pay points to shell an enemy stack adjacent to one of its
-    own (not cut off). Cost = 1 + the trench chips on the target hex (1 if the
-    order carries Surprise, which ignores trenches). The target loses 1 man;
-    the shooter loses nothing. A stack with 2 men or fewer cannot be shelled.
+  - Shelling (reworked in item 20): during an active Offensive (spade) order,
+    instead of an assault the player may pay points to shell an enemy stack
+    adjacent to one of its own (not cut off). Shelling strips trench chips
+    first and then takes men; the shooter loses nothing.
     Shelling counts as casualties, does not use up the order's attack and can
     be repeated while points last; unspent points are lost when the attack is
     made. It does not set the "fought" flag of any stack.
@@ -980,7 +983,7 @@ M10 - PLAYING CARDS, TIERS, LONGER WALKS (supersedes M3 deck, M9 items 2, 3, 7,
     when it sits in an enemy zone, so a line of touching stacks stays supplied
     as long as one end reaches home. A group walled in on all sides is still cut off.
   - Sim (40 games): A 21 / B 19, ~18 rounds, casualties A 44 / B 35.
-  - Supply range: the path must also be at most `supplyRange` (10) hexes long and
+  - Supply range: the path must also be at most `supplyRange` (8, was 10) hexes long and
     end at a SUPPLY DEPOT: the capital, or a town the nation holds (its own home
     town the enemy has not taken, or an enemy town it has captured). The depot
     must lie outside enemy zones (the capital is exempt). A stack that has pushed
@@ -990,3 +993,29 @@ M10 - PLAYING CARDS, TIERS, LONGER WALKS (supersedes M3 deck, M9 items 2, 3, 7,
   - A cut-off stack exerts no zone of control (`inEnemyZoc` ignores it). Supply
     paths themselves are judged against the full zones (`inRawZoc`) so the two
     rules cannot loop.
+20. SETS, BOMBARDMENT, RAIL, ROUGH-GROUND STOP
+  - Sets: see item 4. No cap on the set size (the hand holds 7); the sum is
+    linear, so merging cards only concentrates points in one order and gives
+    up the separate free attacks and face abilities. Low spade pairs are worse
+    than playing the cards alone (3+3 = 0+0+1 points), high pairs better
+    (8+8 = 3+3+1 = 7, was 5).
+  - Bombardment: each point strips 1 trench chip from the target's hex (2 with
+    Surprise), but never below 1 chip (SHELL_TRENCH_FLOOR). When the hex is
+    down to 1 chip (or had none) a shell takes 1 man and costs `extraCost`
+    points (2, or 1 with Combined arms), never below 2 men (SHELL_FLOOR). A
+    stack at 2 men on a hex with at most 1 chip cannot be shelled. Attackers
+    pay the hex's chips in men, so stripping chips also makes the follow-up
+    attack cheaper (and the "men must exceed the cost" limit easier).
+  - Rail: once per stack per turn (a stack that already has rail is not
+    eligible), +2 hexes (+3 with Rail net/Mobilisation), and it ignores the
+    rough-ground stop.
+  - Rough-ground stop: a walk ends on a hex with terrain or trench chips
+    (`fortification` > 0), like an enemy zone (stack.stalled); about half the
+    land hexes are clear, and river hexes always stop a stack.
+  - `supplyRange` 8.
+  - Simulation (100 games, naive bots that never rail): A 22 / B 78, ~20.5
+    rounds, casualties A 51 / B 24. Splits: shelling off, A 23 / B 37; pairs
+    and shelling off, A 22 / B 38; pairs off only, A 16 / B 44; supply range 10
+    instead of 8, A 17 / B 43. The shelling skew (the Offensive major gains
+    most) was already there with the old rules (A 9 / B 31); the bots pair only
+    spades. Needs human playtests; knobs: man cost, trench floor, supplyRange.

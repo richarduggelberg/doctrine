@@ -165,8 +165,8 @@ aside h2:first-child { margin-top: 0; }
 .card-actions { display: flex; flex-wrap: wrap; gap: .2rem; }
 .discard, .pair, .improvise { font-size: .75rem; padding: .15rem .4rem; }
 .discard:disabled, .pair:disabled, .improvise:disabled { opacity: .4; cursor: not-allowed; }
-#improvise { padding: .3rem .5rem; }
-#improvise[hidden] { display: none; }
+#improvise, #set-bar { padding: .3rem .5rem; }
+#improvise[hidden], #set-bar[hidden] { display: none; }
 .hand-title { padding: .3rem .5rem 0; font-size: .85rem; text-transform: uppercase; letter-spacing: .08em; opacity: .7; }
 
 #over { position: fixed; inset: 0; background: #000b; display: flex; align-items: center; justify-content: center; z-index: 10; }

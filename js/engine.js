@@ -34,24 +34,28 @@ export const bandOf = (rank) => Math.floor((rank - 2) / 3);
 // A value from a per-tier table; a plain number is the same for every tier.
 const at = (table, tier) => (Array.isArray(table) ? table[Math.min(tier, table.length - 1)] : table);
 
-// The tier of an order: the rank band plus the doctrine shift of the suit, which can lift a card above its
-// natural band (an 8-10 under a level 3 doctrine plays like a face card). Two same-suit number cards played
-// together are worth their summed rank, plus one tier.
-export function orderTier(state, owner, suit, ranks) {
+// The tier of a card: its rank band plus the doctrine shift of the suit, which can lift a card above its
+// natural band (an 8-10 under a level 3 doctrine plays like a face card).
+export function orderTier(state, owner, suit, rank) {
   const shift = state.doctrineShift[doctrineLevel(state, owner, suit)] ?? 0;
-  const base = ranks.length === 1 ? bandOf(ranks[0]) : Math.min(bandOf(ranks[0] + ranks[1]), 3) + 1;
-  return Math.max(0, base + shift);
+  return Math.max(0, bandOf(rank) + shift);
 }
 
-// What a card, or a same-suit pair, does for its owner: its order, tier, face ability and numeric values.
+// What a card, or a set of same-suit cards played together, does for its owner: its order, tier, face ability
+// and numeric values. In a set the points of every card add up, plus 1 for each card beyond the first; other
+// values (trench limit, ...) come from the strongest card, and faces and aces lose their abilities.
 export function orderInfo(state, owner, cards) {
   const def = state.orders[cards[0].suit];
-  const tier = orderTier(state, owner, cards[0].suit, cards.map((c) => c.rank));
+  const tiers = cards.map((c) => orderTier(state, owner, c.suit, c.rank));
+  const tier = Math.max(...tiers);
   const face = cards.length === 1 && isFace(cards[0].rank) ? def.faces[rankLabel(cards[0].rank)] : null;
   const fx = face?.fx ?? {};
   const values = {};
   for (const [field, spec] of Object.entries(def)) {
     if (typeof spec === 'number' || Array.isArray(spec)) values[field] = at(spec, tier);
+  }
+  if (Array.isArray(def.points)) {
+    values.points = tiers.reduce((sum, t) => sum + at(def.points, t), cards.length - 1);
   }
   for (const field of ['extraCost', 'railHexes', 'relief']) {
     if (fx[field] !== undefined) values[field] = fx[field];
@@ -180,6 +184,7 @@ export function createGame(map, config, seed = 1) {
     moved: 0,
     rail: 0,
     halted: false,
+    stalled: false,
     fought: false,
     cut: 0,
   }));
@@ -378,10 +383,12 @@ function freeNeighbors(state, stack) {
   return emptyNeighbors(state, stack).filter((n) => !inEnemyZoc(state, stack.owner, n.col, n.row));
 }
 
-// A stack walks `move` hexes per turn (plus rail). Entering an enemy zone is free but ends the walk (`halted`),
-// and a stack that fought cannot walk any more.
+// A stack walks `move` hexes per turn (plus rail). Entering an enemy zone, or a hex with terrain or trench chips,
+// is free but ends the walk (`halted`, `stalled`; rail ignores the terrain stop), and a stack that fought
+// cannot walk any more.
 function canStep(state, stack) {
-  return !stack.fought && !stack.halted && stack.moved < state.move + stack.rail;
+  const blocked = stack.halted || (stack.stalled && stack.rail === 0);
+  return !stack.fought && !blocked && stack.moved < state.move + stack.rail;
 }
 
 function directTargets(state, stack) {
@@ -401,16 +408,13 @@ function eligible(state, kind, stack) {
   }
 }
 
-// Why these order cards cannot be played right now, or null if they can. `cards` is one card, or two same-suit
-// number cards played as a pair.
+// Why these order cards cannot be played right now, or null if they can. `cards` is one card, or several
+// same-suit cards played together as a set.
 function playIssue(state, cards) {
   if (state.over) return 'The game is over';
   if (state.pending) return 'Resolve the battle first';
   if (state.active) return 'Finish the current order first';
-  if (cards.length > 1) {
-    if (cards[0].suit !== cards[1].suit) return 'A pair needs two cards of the same suit';
-    if (cards.some((c) => isFace(c.rank))) return 'Face cards and aces cannot be paired';
-  }
+  if (cards.some((c) => c.suit !== cards[0].suit)) return 'A set needs cards of the same suit';
   const { def } = orderInfo(state, state.current, cards);
   const own = state.stacks.filter((s) => s.owner === state.current);
   if (!own.some((s) => eligible(state, def.kind, s))) return 'No stack can use this order';
@@ -421,9 +425,9 @@ export function cardIssue(state, card) {
   return playIssue(state, [card]);
 }
 
-// Can `card` be played together with `other` (a same-suit pair costs both cards for one stronger order)?
-export function pairIssue(state, card, other) {
-  return playIssue(state, [card, other]);
+// Can these cards be played together (a same-suit set costs all its cards for one stronger order)?
+export function setIssue(state, cards) {
+  return playIssue(state, cards);
 }
 
 // Improvising: two cards of one suit are discarded together to play a plain rank-2 order of any suit, as one play.
@@ -473,12 +477,12 @@ function openOrder(next, spent, info, suit, label) {
   };
 }
 
-// Play one card, or a pair of same-suit number cards for a stronger order.
-export function playCard(state, uid, secondUid = null) {
+// Play one card, or any number of same-suit cards as a set for a stronger order.
+export function playCard(state, uid, ...others) {
   const hand = state.hands[state.current];
-  const cards = [uid, secondUid].filter(Boolean).map((id) => hand.find((c) => c.uid === id));
+  const cards = [uid, ...others].filter(Boolean).map((id) => hand.find((c) => c.uid === id));
   if (cards.some((c) => !c)) throw new Error('Card is not in the current hand');
-  if (new Set(cards.map((c) => c.uid)).size !== cards.length) throw new Error('A pair needs two different cards');
+  if (new Set(cards.map((c) => c.uid)).size !== cards.length) throw new Error('A set needs different cards');
   const issue = playIssue(state, cards);
   if (issue) throw new Error(issue);
   const next = structuredClone(state);
@@ -559,7 +563,7 @@ function poolOptions(state, mode, stack) {
   const { values } = state.active;
   switch (mode) {
     case 'trench': return (state.defense[key(stack.col, stack.row)] ?? 0) < values.limit ? [stack] : [];
-    case 'rail': return stack.fought ? [] : [stack];
+    case 'rail': return stack.fought || stack.rail > 0 ? [] : [stack];
     case 'rally': return stack.gear < Math.min(values.limit, stack.men) ? [stack] : [];
     case 'merge': return adjacentStacks(state, stack, true);
     case 'split': return stack.men >= 2 ? freeNeighbors(state, stack) : [];
@@ -609,9 +613,9 @@ export function needsTarget(mode) {
 }
 
 // Free movement: a stack walks up to `move` hexes (plus rail) per turn through empty hexes, and every hex it can
-// reach in one go is a legal destination (`dist` steps away). Entering an enemy zone is free but ends the walk,
-// so a zone hex is only ever the last step; a stack already in an enemy zone must first step out into a free hex.
-// A stack that fought cannot walk.
+// reach in one go is a legal destination (`dist` steps away). Entering an enemy zone, or a hex with terrain or
+// trench chips (unless the stack has rail), is free but ends the walk, so such a hex is only ever the last step;
+// a stack already in an enemy zone must first step out into a free hex. A stack that fought cannot walk.
 function walkReach(state, stack) {
   const reach = new Map();
   const budget = state.move + stack.rail - stack.moved;
@@ -626,7 +630,7 @@ function walkReach(state, stack) {
         const zone = inEnemyZoc(state, stack.owner, n.col, n.row);
         if (dist === 1 && inEnemyZoc(state, stack.owner, stack.col, stack.row) && zone) continue;
         reach.set(key(n.col, n.row), { col: n.col, row: n.row, dist });
-        if (!zone) next.push(n);
+        if (!zone && (stack.rail > 0 || fortification(state, n.col, n.row) === 0)) next.push(n);
       }
     }
     frontier = next;
@@ -650,6 +654,7 @@ export function moveStack(state, id, col, row) {
   stack.row = row;
   stack.moved += move.dist;
   if (inEnemyZoc(next, stack.owner, col, row)) stack.halted = true;
+  if (fortification(next, col, row) > 0) stack.stalled = true;
   trimTrenches(next);
   updateTowns(next);
   return next;
@@ -690,12 +695,23 @@ function loseMen(state, stack, count) {
 }
 
 // Artillery: while an Offensive order has points left, they can pay to shell an enemy stack touching one of your
-// own. A shelled man costs 1 point plus the trench chips on the target's hex (Surprise ignores them), takes 1 man
-// from the target and costs the shooter nothing; but artillery never reduces a stack below SHELL_FLOOR men.
-export function shellCost(state, target) {
+// own. Bombardment first strips trench chips from the target's hex, 1 per point (2 with Surprise), but never
+// below SHELL_TRENCH_FLOOR chips. Once the hex is down to that, a point-paid shell takes 1 man instead and costs
+// as much as an extra attack, but never reduces a stack below SHELL_FLOOR men. It costs the shooter nothing.
+export const SHELL_TRENCH_FLOOR = 1;
+
+function shellEffect(state, target) {
   const a = state.active;
-  const trenches = a?.fx?.ignoreTrenches ? 0 : state.defense[key(target.col, target.row)] ?? 0;
-  return 1 + trenches;
+  const chips = state.defense[key(target.col, target.row)] ?? 0;
+  if (chips > SHELL_TRENCH_FLOOR) {
+    return { kind: 'trench', cost: 1, chips: Math.min(a?.fx?.ignoreTrenches ? 2 : 1, chips - SHELL_TRENCH_FLOOR) };
+  }
+  if (target.men > SHELL_FLOOR) return { kind: 'man', cost: a?.extraCost ?? 2 };
+  return null;
+}
+
+export function shellCost(state, target) {
+  return shellEffect(state, target)?.cost ?? Infinity;
 }
 
 export function shellTargets(state) {
@@ -705,7 +721,6 @@ export function shellTargets(state) {
   return state.stacks.filter(
     (t) =>
       t.owner !== state.current &&
-      t.men > SHELL_FLOOR &&
       a.points >= shellCost(state, t) &&
       mine.some((s) => neighbors(s.col, s.row).some((n) => n.col === t.col && n.row === t.row)),
   );
@@ -715,12 +730,19 @@ export function shell(state, targetId) {
   const target = shellTargets(state).find((t) => t.id === targetId);
   if (!target) throw new Error(`Cannot shell ${targetId}`);
   const next = structuredClone(state);
-  const cost = shellCost(next, target);
-  next.active.points -= cost;
+  const effect = shellEffect(next, target);
+  next.active.points -= effect.cost;
   next.active.acted = true;
   const victim = getStack(next, targetId);
-  loseMen(next, victim, 1);
-  next.log.push(`${next.current}'s artillery shells ${targetId} (${cost} point${cost === 1 ? '' : 's'}): -1 man, ${victim.men} left`);
+  const paid = `${effect.cost} point${effect.cost === 1 ? '' : 's'}`;
+  if (effect.kind === 'trench') {
+    const hex = key(victim.col, victim.row);
+    next.defense[hex] -= effect.chips;
+    next.log.push(`${next.current}'s artillery shells the trenches at ${targetId} (${paid}): -${effect.chips} chip${effect.chips === 1 ? '' : 's'}, ${next.defense[hex]} left`);
+  } else {
+    loseMen(next, victim, 1);
+    next.log.push(`${next.current}'s artillery shells ${targetId} (${paid}): -1 man, ${victim.men} left`);
+  }
   return next;
 }
 
@@ -870,6 +892,7 @@ export function mergeStacks(state, sourceId, targetId) {
   target.gear += source.gear;
   target.fought = target.fought || source.fought;
   target.halted = target.halted || source.halted;
+  target.stalled = target.stalled || source.stalled;
   target.moved = Math.max(target.moved, source.moved);
   target.rail = Math.min(target.rail, source.rail);
   next.stacks = next.stacks.filter((s) => s.id !== sourceId);
@@ -899,7 +922,7 @@ export function splitStack(state, id, col, row) {
   // The new stack has used its walk getting there.
   next.stacks.push({
     id: newId, owner: stack.owner, col, row,     men: sent, gear: gearSent,
-    moved: next.move, rail: 0, halted: false, fought: false, cut: 0,
+    moved: next.move, rail: 0, halted: false, stalled: false, fought: false, cut: 0,
   });
   next.log.push(`${id} splits: ${newId} (${sent} men${gearSent ? `, ${gearSent} gear` : ''}) at (${col},${row})`);
   updateTowns(next);
@@ -929,7 +952,7 @@ export function placeRecruit(state, col, row) {
   const id = `${owner}${++next.idCounters[owner]}`;
   next.recruits[owner] -= 1;
   next.stacks.push({
-    id, owner, col, row, men: 1, gear: 0, moved: next.move, rail: 0, halted: false, fought: false, cut: 0,
+    id, owner, col, row, men: 1, gear: 0, moved: next.move, rail: 0, halted: false, stalled: false, fought: false, cut: 0,
   });
   const town = next.towns.find((t) => t.col === col && t.row === row);
   next.log.push(`${id} (1 recruit) musters at ${town.name} (${next.recruits[owner]} left)`);
@@ -1057,6 +1080,7 @@ export function endTurn(state) {
       stack.moved = 0;
       stack.rail = 0;
       stack.halted = false;
+      stack.stalled = false;
       stack.fought = false;
     }
   }

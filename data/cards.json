@@ -2,7 +2,7 @@
   "handSize": 7,
   "startHand": 4,
   "drawPerTurn": 2,
-  "supplyRange": 10,
+  "supplyRange": 8,
   "move": 2,
   "symbols": {
     "aggressive": "♠",
@@ -31,10 +31,10 @@
       "kind": "attack",
       "points": [0, 2, 3, 4, 5, 6],
       "extraCost": 2,
-      "text": "One stack attacks an adjacent enemy for free. {points} points: +1 strength each, or {extraCost} for another attack, or shell an adjacent enemy stack (1 point + its trench chips: -1 man, no loss to you, never below 2 men).",
+      "text": "One stack attacks an adjacent enemy for free. {points} points: +1 strength each, or {extraCost} for another attack, or shell an adjacent enemy stack (1 point strips a trench chip from its hex, down to 1 chip; once it is down to 1, {extraCost} points take 1 man, never below 2 men; no loss to you).",
       "faces": {
-        "J": { "name": "Surprise", "fx": { "ignoreTrenches": true }, "text": "Trench chips do not count for the defender, in attacks or for the cost of shelling." },
-        "Q": { "name": "Combined arms", "fx": { "extraCost": 1 }, "text": "Extra attacks cost only 1 point." },
+        "J": { "name": "Surprise", "fx": { "ignoreTrenches": true }, "text": "Trench chips do not count for the defender in attacks, and each point of shelling strips 2 chips." },
+        "Q": { "name": "Combined arms", "fx": { "extraCost": 1 }, "text": "Extra attacks and shelled men cost only 1 point." },
         "K": { "name": "No quarter", "fx": { "noRetreat": true }, "text": "A beaten defender cannot retreat." },
         "A": { "name": "Breakthrough", "fx": { "breakthrough": true }, "text": "The loser loses 1 more man." }
       }
@@ -60,7 +60,7 @@
       "limit": [1, 2, 3, 3, 3, 3],
       "railHexes": 2,
       "menu": { "rail": 1, "rally": 2, "merge": 1, "split": 1 },
-      "text": "{points} points: rail +{railHexes} hexes of movement (1), rally +1 gear up to {limit} (2), merge adjacent stacks (1), split a stack (1).",
+      "text": "{points} points: rail +{railHexes} hexes of movement, ignoring terrain stops, once per stack (1), rally +1 gear up to {limit} (2), merge adjacent stacks (1), split a stack (1).",
       "faces": {
         "J": { "name": "Rail net", "fx": { "railHexes": 3 }, "text": "Rail gives +3 hexes." },
         "Q": { "name": "Staff work", "fx": { "bonusPoints": 2 }, "text": "2 extra points." },

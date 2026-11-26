@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import {
   applyPool, applyToStack, attack, cardIssue, chooseMode, createGame, discardCard, eligibleStacks,
   endOrder, endTurn, fortification, getStack, improvise, improviseIssue, isFace, legalAttacks, legalMerges, legalMoves,
-  maxBonus, mergeStacks, moveStack, pairIssue, placeRecruit, playCard, recruitSites, resolveHold, resolveRetreat, retreatOptions, shell, shellCost,
+  maxBonus, mergeStacks, moveStack, setIssue, placeRecruit, playCard, recruitSites, resolveHold, resolveRetreat, retreatOptions, shell, shellCost,
   shellTargets, strength,
 } from '../js/engine.js';
 import { distance } from '../js/hex.js';
@@ -151,9 +151,9 @@ function candidates(state) {
     .sort((a, b) => PRIORITY.indexOf(a.suit) - PRIORITY.indexOf(b.suit) || b.rank - a.rank)
     .map((c) => [c.uid]);
   const pairs = [];
-  for (const x of hand) {
+  for (const x of process.env.PAIRS === '0' ? [] : hand) {
     for (const y of hand) {
-      if (x.uid < y.uid && x.suit === y.suit && !isFace(x.rank) && !isFace(y.rank) && pairIssue(state, x, y) === null) {
+      if (x.uid < y.uid && x.suit === y.suit && !isFace(x.rank) && !isFace(y.rank) && setIssue(state, [x, y]) === null) {
         pairs.push([x.uid, y.uid]);
       }
     }

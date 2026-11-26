@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import {
   applyPool, applyToStack, attack, breakScore, cardIssue, chooseMode, countryAt, createGame, discardCard, eligibleStacks, endOrder,
   endTurn, featuresAt, fortification, frontOwners, improvise, improviseIssue, inBounds, inEnemyZoc, isCutOff, legalAttacks, legalMerges, legalMoves, legalSplits,
-  maxBonus, mergeStacks, moveStack, orderTier, pairIssue, playCard, resolveHold, resolveRetreat, retreatOptions, shell, shellCost,
+  maxBonus, mergeStacks, moveStack, orderTier, setIssue, playCard, resolveHold, resolveRetreat, retreatOptions, shell, shellCost,
   shellTargets, splitStack, placeRecruit, recruitSites, recruitsFor,
   stackAt, strength, support, terrainAt, terrainBonus, territoryOf, townsLost,
 } from '../js/engine.js';
@@ -32,10 +32,11 @@ function play(state, suit, rank) {
   return playCard(given, given.hands[given.current].at(-1).uid);
 }
 
-function playPair(state, suit, first, second) {
-  const given = give(give(state, suit, first), suit, second);
+function playSet(state, suit, ...ranks) {
+  let given = state;
+  for (const rank of ranks) given = give(given, suit, rank);
   const hand = given.hands[given.current];
-  return playCard(given, hand.at(-2).uid, hand.at(-1).uid);
+  return playCard(given, ...hand.slice(-ranks.length).map((c) => c.uid));
 }
 
 // Override suit counts in a player's doctrine.
@@ -136,7 +137,7 @@ test('attacking needs an Offensive card, but moving does not', () => {
 
 test('rank bands and the doctrine shift set the tier; doctrine can lift a card above its band', () => {
   const state = duel(3, 3);
-  const tiers = (owner, suit) => [2, 4, 5, 7, 8, 10, 11, 13, 14].map((r) => orderTier(state, owner, suit, [r]));
+  const tiers = (owner, suit) => [2, 4, 5, 7, 8, 10, 11, 13, 14].map((r) => orderTier(state, owner, suit, r));
   // A has 3 aggressive cards (+1), 2 reorganizational (0), 1 defensive (-1) and no willingness (-2).
   assert.deepEqual(tiers('A', 'aggressive'), [1, 1, 2, 2, 3, 3, 4, 4, 5]);
   assert.deepEqual(tiers('A', 'reorganizational'), [0, 0, 1, 1, 2, 2, 3, 3, 4]);
@@ -148,19 +149,22 @@ test('rank bands and the doctrine shift set the tier; doctrine can lift a card a
   assert.equal(play(setDoctrine(state, 'A', { aggressive: 9 }), 'S', 9).active.points, 4, 'level is capped');
 });
 
-test('two same-suit number cards played as a pair are worth their sum, plus a tier', () => {
+test('same-suit cards played as a set add their points, plus 1 per card beyond the first; faces lose their abilities', () => {
   const state = duel(3, 3);
-  assert.equal(orderTier(state, 'A', 'aggressive', [2, 3]), 3);
-  assert.equal(orderTier(state, 'A', 'aggressive', [9, 10]), 5);
-  const pair = playPair(state, 'S', 2, 3);
-  assert.equal(pair.active.points, 4, 'a 2 and a 3 beat either card alone (2 points)');
+  const pair = playSet(state, 'S', 2, 3);
+  assert.equal(pair.active.points, 5, '2 + 2 for the cards, +1 for the pair');
   assert.equal(pair.played, 1, 'one order');
+  assert.equal(playSet(state, 'S', 2, 3, 5).active.points, 9, '2 + 2 + 3, +2 for three cards');
+  const faces = playSet(state, 'S', 11, 4);
+  assert.equal(faces.active.points, 8, 'a face counts as its tier: 5 + 2, +1');
+  assert.equal(faces.active.name, 'Offensive', 'its ability is lost');
+  assert.equal(faces.active.fx.ignoreTrenches, undefined);
+  const defence = playSet(endTurn(state), 'C', 2, 3).active;
+  assert.deepEqual([defence.points, defence.values.limit], [5, 2], 'points add up; the trench limit is the strongest card\'s');
   const mixed = give(give(state, 'S', 2), 'C', 3);
   const hand = mixed.hands.A;
-  assert.match(pairIssue(mixed, hand.at(-2), hand.at(-1)), /same suit/);
+  assert.match(setIssue(mixed, hand.slice(-2)), /same suit/);
   assert.throws(() => playCard(mixed, hand.at(-2).uid, hand.at(-1).uid));
-  const faces = give(give(state, 'S', 11), 'S', 4);
-  assert.match(pairIssue(faces, faces.hands.A.at(-2), faces.hands.A.at(-1)), /cannot be paired/);
 });
 
 test('face cards add abilities: Offensive Surprise, No quarter and Breakthrough', () => {
@@ -265,6 +269,37 @@ test('Rail adds hexes to a stack\'s walk', () => {
   const hex = legalMoves(state, 'A1').find((h) => h.dist === 4);
   state = moveStack(state, 'A1', hex.col, hex.row);
   assert.deepEqual(legalMoves(state, 'A1'), []);
+});
+
+test('entering a hex with terrain or trench chips ends the walk, unless the stack has rail', () => {
+  const hilly = () => {
+    const state = duel(3, 3, { '2,2': 'hills' });
+    state.stacks[1].col = 4;
+    return state;
+  };
+  const onHills = moveStack(hilly(), 'A1', 2, 2);
+  assert.equal(onHills.stacks[0].stalled, true);
+  assert.deepEqual(legalMoves(onHills, 'A1'), [], 'a hill ends the walk');
+  const dug = gapDuel(3, 3);
+  dug.defense['2,2'] = 1;
+  assert.deepEqual(legalMoves(moveStack(dug, 'A1', 2, 2), 'A1'), [], 'a trench chip counts too');
+  const clear = moveStack(gapDuel(3, 3), 'A1', 2, 2);
+  assert.equal(clear.stacks[0].stalled, false);
+  assert.ok(legalMoves(clear, 'A1').length > 0, 'clear ground leaves the second hex');
+  // Rail runs through rough ground, even if the stack already stopped on it.
+  const railed = applyToStack(chooseMode(play(hilly(), 'D', 2), 'rail'), 'A1');
+  assert.ok(legalMoves(moveStack(railed, 'A1', 2, 2), 'A1').length > 0);
+  const stopped = applyToStack(chooseMode(play(moveStack(hilly(), 'A1', 2, 2), 'D', 2), 'rail'), 'A1');
+  assert.ok(legalMoves(stopped, 'A1').length > 0);
+});
+
+test('rail can be given to a stack only once per turn', () => {
+  let state = chooseMode(play(duel(3, 3), 'D', 8), 'rail'); // 2 points
+  assert.deepEqual(eligibleStacks(state).map((s) => s.id), ['A1']);
+  state = applyToStack(state, 'A1');
+  assert.equal(state.active.points, 1);
+  assert.deepEqual(eligibleStacks(state), [], 'A1 already has rail');
+  assert.throws(() => applyToStack(state, 'A1'));
 });
 
 test('plays per turn are not capped: every card in hand can be played', () => {
@@ -695,36 +730,44 @@ test('if both nations are wiped out at once, the one that lost more men loses', 
   assert.equal(wipe({ A: 2, B: 5 }).over.loser, 'B');
 });
 
-test('artillery shells an adjacent stack for 1 point plus its trench chips, never below 2 men', () => {
-  const sheller = (a, b, trenches = 0) => {
+test('artillery strips trench chips down to 1, then takes men for 2 points each, never below 2 men', () => {
+  const sheller = (a, b, trenches = 0, rank = 8) => {
     const state = duel(a, b);
     if (trenches) state.defense['2,2'] = trenches;
-    return play(state, 'S', 8); // tier 3 for A: 4 points
+    return play(state, 'S', rank); // an 8 is tier 3 for A: 4 points
   };
-  let state = sheller(5, 4);
+  // Chips go first, 1 point each, without hurting either stack.
+  let state = sheller(5, 4, 3);
   assert.deepEqual(shellTargets(state).map((s) => s.id), ['B1']);
   state = shell(state, 'B1');
   const [a, b] = ['A1', 'B1'].map((id) => state.stacks.find((s) => s.id === id));
-  assert.deepEqual([a.men, a.fought, b.men, state.active.points, state.casualties.B], [5, false, 3, 3, 1]);
+  assert.deepEqual([a.men, a.fought, b.men, state.active.points, state.defense['2,2']], [5, false, 4, 3, 2]);
   state = shell(state, 'B1');
-  assert.equal(state.stacks.find((s) => s.id === 'B1').men, 2);
-  assert.deepEqual(shellTargets(state), [], 'a stack of 2 men is beyond artillery');
-  assert.throws(() => shell(state, 'B1'));
+  assert.deepEqual([state.defense['2,2'], state.active.points, state.casualties.B], [1, 2, 0]);
+  // The last chip stays; from here a man costs as much as an extra attack.
+  assert.equal(shellCost(state, state.stacks[1]), 2);
+  state = shell(state, 'B1');
+  assert.deepEqual([state.stacks[1].men, state.defense['2,2'], state.active.points, state.casualties.B], [3, 1, 0, 1]);
+  assert.deepEqual(shellTargets(state), [], 'out of points');
 
-  // Each trench chip on the target hex adds a point to the price; Surprise ignores them.
-  const dug = sheller(5, 4, 2);
-  assert.equal(shellCost(dug, dug.stacks[1]), 3);
-  assert.equal(shell(dug, 'B1').active.points, 1);
-  const surprise = play(Object.assign(duel(5, 4), { defense: { '2,2': 2 } }), 'S', 11);
-  assert.equal(shellCost(surprise, surprise.stacks[1]), 1);
+  // A bare hex goes straight to men, and a stack of 2 men is beyond artillery.
+  const bare = shell(sheller(5, 3, 0, 13), 'B1'); // a king is tier 4: 5 points
+  assert.deepEqual([bare.stacks[1].men, bare.active.points], [2, 3]);
+  assert.deepEqual(shellTargets(bare), []);
+  assert.throws(() => shell(bare, 'B1'));
+  // Surprise strips 2 chips per point, still leaving 1; Combined arms makes a man cost 1.
+  let surprise = play(Object.assign(duel(5, 4), { defense: { '2,2': 4 } }), 'S', 11);
+  surprise = shell(shell(surprise, 'B1'), 'B1');
+  assert.deepEqual([surprise.defense['2,2'], surprise.active.points], [1, 3]);
+  const combined = play(duel(5, 4), 'S', 12);
+  assert.equal(shellCost(combined, combined.stacks[1]), 1);
   // Not affordable, or not adjacent.
-  assert.deepEqual(shellTargets(sheller(5, 4, 4)), []);
   const gap = sheller(5, 4);
   gap.stacks[1].col = 4;
   assert.deepEqual(shellTargets(gap), []);
   // Shelling does not use up the attack: both are paid from the same points.
-  const combined = duelWithReserve(6, 4);
-  const after = attack(shell(play(combined, 'S', 8), 'B1'), 'A1', 'B1', 2);
+  const reserve = duelWithReserve(6, 4);
+  const after = attack(shell(play(reserve, 'S', 8), 'B1'), 'A1', 'B1', 2);
   assert.equal(after.casualties.B, 4, 'one shelled man, then 1 + 2 offensive points');
   // After a first attack the points must still cover the extra attack; shelling can spend them below that.
   const pair = duelWithReserve(4, 9);
@@ -732,9 +775,11 @@ test('artillery shells an adjacent stack for 1 point plus its trench chips, neve
   pair.stacks.push({ ...structuredClone(pair.stacks[0]), id: 'A2', col: spot.col, row: spot.row });
   let volley = attack(play(pair, 'S', 8), 'A1', 'B1');
   assert.deepEqual(legalAttacks(volley, 'A2').map((s) => s.id), ['B1'], '4 points pay the extra attack');
-  for (let i = 0; i < 3; i++) volley = shell(volley, 'B1');
-  assert.equal(volley.active.points, 1);
-  assert.deepEqual(legalAttacks(volley, 'A2'), [], 'one point no longer buys the extra attack');
+  volley = shell(volley, 'B1');
+  assert.equal(volley.active.points, 2);
+  assert.deepEqual(legalAttacks(volley, 'A2').map((s) => s.id), ['B1'], '2 points still buy the extra attack');
+  volley = shell(volley, 'B1');
+  assert.deepEqual(legalAttacks(volley, 'A2'), [], 'no points left for the extra attack');
 });
 
 test('an empty hex keeps at most one trench chip, however the stack left it', () => {

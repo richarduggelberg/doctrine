@@ -2,7 +2,7 @@ import {
   applyPool, applyToStack, attack, breakScore, cardIssue, cardText, chooseMode, createGame, discardCard,
   doctrineLevel, eligibleStacks, endOrder, endTurn, getStack, IMPROVISED_RANK, improvise, improviseIssue, inEnemyZoc, isCutOff,
   isDirectOrder, isFace, legalAttacks,
-  legalMerges, legalMoves, legalSplits, mergeStacks, moveStack, maxBonus, needsTarget, orderInfo, pairIssue, playCard,
+  legalMerges, legalMoves, legalSplits, mergeStacks, moveStack, maxBonus, needsTarget, orderInfo, setIssue, playCard,
   rankLabel, recruitSites, resolveHold, resolveRetreat, retreatOptions, shell, shellTargets, splitStack, strength, support, terrainBonus, featuresAt, townsLost,
   placeRecruit,
 } from './engine.js';
@@ -32,6 +32,7 @@ const statusLine = $('status');
 const handEl = $('hand');
 const handTitle = $('hand-title');
 const improviseEl = $('improvise');
+const setEl = $('set-bar');
 const overPanel = $('over');
 
 const INSTRUCTIONS = {
@@ -59,8 +60,8 @@ let selectedId = null;
 let bonusChoice = 0;
 // Artillery mode of an Offensive order: clicking an adjacent enemy shells it instead of attacking.
 let shellMode = false;
-// First card of a pair being assembled from the hand.
-let pairUid = null;
+// Cards picked from the hand to be played together as one set (all of one suit).
+let setUids = [];
 // Cards picked for improvising (up to two of one suit).
 let improviseUids = [];
 
@@ -75,7 +76,7 @@ async function start() {
 function resetPicks() {
   selectedId = null;
   bonusChoice = 0;
-  pairUid = null;
+  setUids = [];
   improviseUids = [];
 }
 
@@ -150,7 +151,7 @@ function drawInfo() {
   const lines = [
     `${stack.id}${stack.army ? ` (${stack.army})` : ''}: ${stack.men} men chips${state.menPerChip ? ` (~${(stack.men * state.menPerChip).toLocaleString('en-US')} soldiers)` : ''} + ${stack.gear} gear on ${describeTerrain(stack.col, stack.row)} ` +
       `(${stack.col},${stack.row}). Defends at ${strength(state, stack, true)}${support(state, stack) ? ` (incl. +${support(state, stack)} from neighbouring stacks)` : ''}.` +
-      `${stack.fought ? ' Fought this turn: cannot walk.' : stack.halted ? ' Halted in an enemy zone.' : stack.moved ? ` Walked ${stack.moved} hex(es) this turn.` : ''}` +
+      `${stack.fought ? ' Fought this turn: cannot walk.' : stack.halted ? ' Halted in an enemy zone.' : stack.stalled && stack.rail === 0 ? ' Stopped on rough or fortified ground.' : stack.moved ? ` Walked ${stack.moved} hex(es) this turn.` : ''}` +
       `${isCutOff(state, stack) ? ' SURROUNDED: no supply path home, it can do nothing and bleeds a gear chip, then a man, every turn.' : ''}`,
   ];
   for (const target of legalAttacks(state, stack.id)) {
@@ -205,7 +206,7 @@ function drawOrder() {
     modesEl.innerHTML =
       `<button data-shell="0" class="${shellMode ? '' : 'on'}">Attack</button> ` +
       `<button data-shell="1" class="${shellMode ? 'on' : ''}" ${shellTargets(state).length || shellMode ? '' : 'disabled'}>` +
-      `Shell (1 point + trenches)</button>`;
+      `Shell (strip a trench chip: 1 point; take a man: ${active.extraCost || 2} points)</button>`;
   }
   if (active.kind === 'attack' && !state.pending && max > 0 && !shellMode) {
     bonusEl.hidden = false;
@@ -252,14 +253,24 @@ function drawHand() {
   const hand = state.hands[state.current];
   const [impA, impB] = improviseUids.map((uid) => hand.find((c) => c.uid === uid));
   const suitName = (card) => state.orders[card?.suit]?.name ?? '';
-  handTitle.textContent = pairUid
-    ? `Player ${state.current}'s hand - pick a second ${suitName(hand.find((c) => c.uid === pairUid))} card to pair (or click the first again to cancel)`
+  const picked = setUids.map((uid) => hand.find((c) => c.uid === uid)).filter(Boolean);
+  handTitle.textContent = picked.length
+    ? `Player ${state.current}'s hand - building a set of ${suitName(picked[0])} cards: click more of the same suit to add them, a picked card to remove it`
     : impB
       ? `Player ${state.current}'s hand - improvising with two ${suitName(impA)} cards: choose the order to play (click a picked card to cancel)`
       : impA
         ? `Player ${state.current}'s hand - pick a second ${suitName(impA)} card to discard with it (or click the first again to cancel)`
         : `Player ${state.current}'s hand`;
   improviseEl.hidden = !impB;
+  setEl.hidden = !picked.length;
+  if (picked.length) {
+    const info = orderInfo(state, state.current, picked);
+    const issue = picked.length < 2 ? 'Pick at least two cards' : setIssue(state, picked);
+    setEl.innerHTML =
+      `<button data-play-set="1" ${issue ? 'disabled' : ''} title="${issue ?? ''}">Play set of ${picked.length}: ` +
+      `${info.def.name}${info.values.points !== undefined ? `, ${info.values.points} points` : ''}</button> ` +
+      `<button data-play-set="0">Cancel</button>`;
+  }
   if (impB) {
     improviseEl.innerHTML = Object.entries(state.orders).map(([suit, def]) => {
       const issue = improviseIssue(state, impA, impB, suit);
@@ -271,28 +282,28 @@ function drawHand() {
   handEl.innerHTML = hand
     .map((card) => {
       const { def, tier } = orderInfo(state, state.current, [card]);
-      const first = hand.find((c) => c.uid === pairUid);
       let issue = cardIssue(state, card);
-      if (first) issue = card.uid === pairUid ? null : pairIssue(state, first, card);
-      if (impA) {
-        const picked = card.uid === impA.uid || card.uid === impB?.uid;
-        issue = picked ? null : impB ? 'Choose the order to play above' : card.suit !== impA.suit ? 'Pick a card of the same suit' : null;
+      if (picked.length) {
+        issue = picked.some((p) => p.uid === card.uid) ? null : card.suit !== picked[0].suit ? 'Pick a card of the same suit' : null;
       }
-      const picking = pairUid || impA;
-      const canPair = !picking && !isFace(card.rank) &&
-        hand.some((c) => c.uid !== card.uid && pairIssue(state, card, c) === null);
+      if (impA) {
+        const isPicked = card.uid === impA.uid || card.uid === impB?.uid;
+        issue = isPicked ? null : impB ? 'Choose the order to play above' : card.suit !== impA.suit ? 'Pick a card of the same suit' : null;
+      }
+      const picking = picked.length || impA;
+      const canPair = !picking && hand.some((c) => c.uid !== card.uid && setIssue(state, [card, c]) === null);
       const mate = hand.find((c) => c.uid !== card.uid && c.suit === card.suit);
       const canImprovise = !picking && mate && Object.keys(state.orders).some((s) => improviseIssue(state, card, mate, s) === null);
       return (
         `<div class="card-wrap">` +
-        `<button class="card suit-${card.suit}${card.uid === pairUid || card.uid === impA?.uid || card.uid === impB?.uid ? ' picked' : ''}" data-uid="${card.uid}" ${issue ? 'disabled' : ''} ` +
+        `<button class="card suit-${card.suit}${setUids.includes(card.uid) || card.uid === impA?.uid || card.uid === impB?.uid ? ' picked' : ''}" data-uid="${card.uid}" ${issue ? 'disabled' : ''} ` +
         `title="${issue ?? 'Play this card'}">` +
         `<span class="card-rank">${rankLabel(card.rank)}<span class="card-pip">${def.symbol}</span></span>` +
         `<span class="card-name">${def.name}</span>` +
         `<span class="card-suit">tier ${tier} · L${doctrineLevel(state, state.current, card.suit)}</span>` +
         `<span class="card-text">${cardText(state, state.current, [card])}</span></button>` +
         `<span class="card-actions">` +
-        `<button class="pair" data-pair="${card.uid}" ${canPair ? '' : 'disabled'}>Pair</button>` +
+        `<button class="pair" data-pair="${card.uid}" ${canPair ? '' : 'disabled'} title="Start a set: play several cards of one suit together">Set</button>` +
         `<button class="improvise" data-improvise="${card.uid}" ${canImprovise ? '' : 'disabled'} ` +
         `title="Discard this and another ${def.name} card to play a rank-2 order of any suit">Improvise</button>` +
         `<button class="discard" data-discard="${card.uid}" ${state.pending || picking ? 'disabled' : ''}>` +
@@ -371,20 +382,29 @@ handEl.addEventListener('click', (event) => {
     improviseUids = [improvising.dataset.improvise];
     draw();
   } else if (pair && !pair.disabled) {
-    pairUid = pair.dataset.pair;
+    setUids = [pair.dataset.pair];
     draw();
   } else if (play && !play.disabled && improviseUids.length) {
     const uid = play.dataset.uid;
     improviseUids = improviseUids.includes(uid) ? [] : [...improviseUids, uid];
     draw();
-  } else if (play && !play.disabled) {
-    const first = pairUid;
-    if (first && play.dataset.uid === first) {
-      pairUid = null;
-      draw();
-    } else if (first) attempt(() => playCard(state, first, play.dataset.uid));
-    else attempt(() => playCard(state, play.dataset.uid));
-  } else if (discard && !discard.disabled) attempt(() => discardCard(state, discard.dataset.discard));
+  } else if (play && !play.disabled && setUids.length) {
+    const uid = play.dataset.uid;
+    setUids = setUids.includes(uid) ? setUids.filter((u) => u !== uid) : [...setUids, uid];
+    draw();
+  } else if (play && !play.disabled) attempt(() => playCard(state, play.dataset.uid));
+  else if (discard && !discard.disabled) attempt(() => discardCard(state, discard.dataset.discard));
+});
+
+setEl.addEventListener('click', (event) => {
+  const button = event.target.closest('[data-play-set]');
+  if (!button || button.disabled) return;
+  const uids = [...setUids];
+  if (button.dataset.playSet === '1') attempt(() => playCard(state, ...uids));
+  else {
+    setUids = [];
+    draw();
+  }
 });
 
 bonusEl.addEventListener('click', (event) => {
