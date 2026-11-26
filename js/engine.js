@@ -13,7 +13,8 @@ export const TERRAIN_BONUS = {
 export const MIN_ATTACKER_MEN = 2;
 // Artillery cannot finish a stack off: a stack of this many men or fewer is beyond its reach.
 export const SHELL_FLOOR = 2;
-export const HOLD_LOSS = 1; // on top of the attrition man: standing costs 2 men in total
+// A beaten defender with nowhere to retreat (pocketed, or "No quarter") stands and loses this many men.
+export const HOLD_LOSS = 2;
 
 // Pool orders hold points that are spent one menu entry at a time (see `menu` in cards.json).
 const POOLS = new Set(['defend', 'logistics', 'homefront']);
@@ -57,7 +58,7 @@ export function orderInfo(state, owner, cards) {
   if (Array.isArray(def.points)) {
     values.points = tiers.reduce((sum, t) => sum + at(def.points, t), cards.length - 1);
   }
-  for (const field of ['extraCost', 'railHexes', 'relief']) {
+  for (const field of ['extraCost', 'manCost', 'railHexes', 'relief']) {
     if (fx[field] !== undefined) values[field] = fx[field];
   }
   if (values.points !== undefined) values.points += fx.bonusPoints ?? 0;
@@ -384,11 +385,18 @@ function freeNeighbors(state, stack) {
 }
 
 // A stack walks `move` hexes per turn (plus rail). Entering an enemy zone, or a hex with terrain or trench chips,
-// is free but ends the walk (`halted`, `stalled`; rail ignores the terrain stop), and a stack that fought
-// cannot walk any more.
+// is free but ends the walk (`halted`, `stalled`; rail ignores the terrain stop). Each stack gets one action per
+// turn: walking, shelling, attacking, merging and splitting are all that action, so a stack that fought cannot
+// walk, and one that walked cannot fight. Trenches, rallying, relief, recruiting and rail are not actions, and
+// neither are forced moves (a retreat or the advance after a win).
 function canStep(state, stack) {
   const blocked = stack.halted || (stack.stalled && stack.rail === 0);
   return !stack.fought && !blocked && stack.moved < state.move + stack.rail;
+}
+
+// Has this stack not yet used its action for fighting, merging or splitting (it has neither walked nor fought)?
+function canAct(stack) {
+  return !stack.fought && stack.moved === 0;
 }
 
 function directTargets(state, stack) {
@@ -396,11 +404,12 @@ function directTargets(state, stack) {
   return adjacentStacks(state, stack, false);
 }
 
-// Can this stack be the subject of an order of the given kind?
-function eligible(state, kind, stack) {
+// Can this stack be the subject of an order of the given kind? An attack order is judged by `ctx.room`, the
+// points left to grind with (negative when even the order's attack fee cannot be paid), and its face ability.
+function eligible(state, kind, stack, ctx) {
   if (isCutOff(state, stack)) return false;
   switch (kind) {
-    case 'attack': return attackTargets(state, stack).length > 0;
+    case 'attack': return attackOptions(state, stack, ctx.room, ctx.fx).length > 0;
     case 'defend':
     case 'logistics':
     case 'homefront': return true;
@@ -415,9 +424,9 @@ function playIssue(state, cards) {
   if (state.pending) return 'Resolve the battle first';
   if (state.active) return 'Finish the current order first';
   if (cards.some((c) => c.suit !== cards[0].suit)) return 'A set needs cards of the same suit';
-  const { def } = orderInfo(state, state.current, cards);
+  const { def, values, fx } = orderInfo(state, state.current, cards);
   const own = state.stacks.filter((s) => s.owner === state.current);
-  if (!own.some((s) => eligible(state, def.kind, s))) return 'No stack can use this order';
+  if (!own.some((s) => eligible(state, def.kind, s, { room: values.points ?? 0, fx }))) return 'No stack can use this order';
   return null;
 }
 
@@ -464,9 +473,9 @@ function openOrder(next, spent, info, suit, label) {
     suit,
     name: face ? face.name : def.name,
     kind: def.kind,
-    charges: 1,
     points: values.points ?? 0,
     extraCost: values.extraCost ?? 0,
+    manCost: values.manCost ?? 2,
     values,
     fx,
     menu,
@@ -512,11 +521,16 @@ function finishActive(next) {
   next.active = null;
 }
 
-function consume(next, stackId) {
-  next.active.charges -= 1;
-  next.active.acted = true;
-  next.active.used.push(stackId);
-  if (next.active.charges <= 0) finishActive(next);
+// An attack order stays open while some stack can still shell, grind or assault with the points left.
+function autoFinish(next) {
+  const a = next.active;
+  if (!a || a.kind !== 'attack' || next.pending || next.over) return;
+  const room = a.points - attackFee(a);
+  const live = next.stacks.some(
+    (s) => s.owner === next.current && !isCutOff(next, s)
+      && (attackOptions(next, s, room, a.fx).length > 0 || shellTargets(next, s.id).length > 0),
+  );
+  if (!live) finishActive(next);
 }
 
 function cancelActive(next) {
@@ -563,10 +577,10 @@ function poolOptions(state, mode, stack) {
   const { values } = state.active;
   switch (mode) {
     case 'trench': return (state.defense[key(stack.col, stack.row)] ?? 0) < values.limit ? [stack] : [];
-    case 'rail': return stack.fought || stack.rail > 0 ? [] : [stack];
+    case 'rail': return stack.fought || stack.rail > 0 || territoryOf(state, stack.col, stack.row) !== stack.owner ? [] : [stack];
     case 'rally': return stack.gear < Math.min(values.limit, stack.men) ? [stack] : [];
-    case 'merge': return adjacentStacks(state, stack, true);
-    case 'split': return stack.men >= 2 ? freeNeighbors(state, stack) : [];
+    case 'merge': return canAct(stack) ? adjacentStacks(state, stack, true) : [];
+    case 'split': return stack.men >= 2 && canAct(stack) ? freeNeighbors(state, stack) : [];
     case 'recruit': return territoryOf(state, stack.col, stack.row) === stack.owner ? [stack] : [];
     default: return [];
   }
@@ -585,7 +599,7 @@ export function eligibleStacks(state) {
     if (!poolReady(a) || !TARGETED.has(a.mode)) return [];
     return mine.filter((s) => poolOptions(state, a.mode, s).length > 0);
   }
-  return mine.filter((s) => !a.used.includes(s.id) && eligible(state, a.kind, s));
+  return mine.filter((s) => !a.used.includes(s.id) && eligible(state, a.kind, s, { room: a.points - attackFee(a), fx: a.fx }));
 }
 
 export function isDirectOrder(state) {
@@ -612,29 +626,38 @@ export function needsTarget(mode) {
   return TARGETED.has(mode);
 }
 
-// Free movement: a stack walks up to `move` hexes (plus rail) per turn through empty hexes, and every hex it can
-// reach in one go is a legal destination (`dist` steps away). Entering an enemy zone, or a hex with terrain or
-// trench chips (unless the stack has rail), is free but ends the walk, so such a hex is only ever the last step;
-// a stack already in an enemy zone must first step out into a free hex. A stack that fought cannot walk.
+// Free movement: a stack walks up to `move` hexes per turn through empty hexes, and every hex it can reach in one go
+// is a legal destination (`dist` steps away). Entering an enemy zone, or a hex with terrain or trench chips, is free
+// but ends the walk, so such a hex is only ever the last step; a stack already in an enemy zone must first step out
+// into a free hex. Rail adds `rail` hexes, but only along a path that lies entirely on the stack's own soil (start
+// included); those hexes ignore the terrain and trench stop (an enemy zone still stops them). A stack that fought
+// cannot walk.
 function walkReach(state, stack) {
   const reach = new Map();
-  const budget = state.move + stack.rail - stack.moved;
-  let frontier = [{ col: stack.col, row: stack.row }];
-  for (let dist = 1; dist <= budget && frontier.length; dist++) {
-    const next = [];
-    for (const from of frontier) {
-      const steps = neighbors(from.col, from.row).filter(
-        (n) => inBounds(state, n.col, n.row) && !stackAt(state, n.col, n.row) && !reach.has(key(n.col, n.row)),
-      );
-      for (const n of steps) {
-        const zone = inEnemyZoc(state, stack.owner, n.col, n.row);
-        if (dist === 1 && inEnemyZoc(state, stack.owner, stack.col, stack.row) && zone) continue;
-        reach.set(key(n.col, n.row), { col: n.col, row: n.row, dist });
-        if (!zone && (stack.rail > 0 || fortification(state, n.col, n.row) === 0)) next.push(n);
+  const home = (col, row) => territoryOf(state, col, row) === stack.owner;
+  const spread = (budget, allowed, stopsOnRough) => {
+    const seen = new Set();
+    let frontier = [{ col: stack.col, row: stack.row }];
+    for (let dist = 1; dist <= budget && frontier.length; dist++) {
+      const next = [];
+      for (const from of frontier) {
+        const steps = neighbors(from.col, from.row).filter(
+          (n) => inBounds(state, n.col, n.row) && !stackAt(state, n.col, n.row) && !seen.has(key(n.col, n.row)) && allowed(n),
+        );
+        for (const n of steps) {
+          const zone = inEnemyZoc(state, stack.owner, n.col, n.row);
+          if (dist === 1 && inEnemyZoc(state, stack.owner, stack.col, stack.row) && zone) continue;
+          seen.add(key(n.col, n.row));
+          const known = reach.get(key(n.col, n.row));
+          if (!known || known.dist > dist) reach.set(key(n.col, n.row), { col: n.col, row: n.row, dist });
+          if (!zone && !(stopsOnRough && fortification(state, n.col, n.row) > 0)) next.push(n);
+        }
       }
+      frontier = next;
     }
-    frontier = next;
-  }
+  };
+  if (!stack.stalled) spread(state.move - stack.moved, () => true, true);
+  if (stack.rail > 0 && home(stack.col, stack.row)) spread(state.move + stack.rail - stack.moved, (n) => home(n.col, n.row), false);
   return reach;
 }
 
@@ -660,29 +683,56 @@ export function moveStack(state, id, col, row) {
   return next;
 }
 
-// Enemy stacks a stack could attack: the attacker pays the target hex's terrain and trench chips (at least 1 man),
-// and it cannot pay with its last man, so it needs more men than that.
-function attackTargets(state, stack) {
-  if (stack.men < MIN_ATTACKER_MEN) return [];
-  return directTargets(state, stack).filter((t) => stack.men > Math.max(1, fortification(state, t.col, t.row)));
+// An assault compares chips only: the attacker's men and gear against the defender's men, gear, terrain, trench
+// chips and adjacent support (Surprise ignores the trench chips, in strength and in cost). It succeeds only with
+// strictly more, and then the attacker pays in blood for the ground: the terrain and trench chips (at least 1 man).
+export function assaultInfo(state, attacker, defender, fx = {}) {
+  const trenches = fx.ignoreTrenches ? state.defense[key(defender.col, defender.row)] ?? 0 : 0;
+  const attackStrength = strength(state, attacker, false);
+  const defenseStrength = strength(state, defender, true) - trenches;
+  return {
+    attackStrength,
+    defenseStrength,
+    wins: attackStrength > defenseStrength,
+    cost: Math.max(1, fortification(state, defender.col, defender.row) - trenches),
+  };
 }
 
-// Enemy stacks the given stack may attack from where it stands.
-export function legalAttacks(state, id) {
+// Can `stack` attack `target` while grinding with `grind` points? A winning assault costs the attacker the ground's
+// men; any other attack must grind, which costs both sides `grind` men and moves nobody. Nobody pays their last man.
+function attackOk(state, stack, target, grind, fx) {
+  const info = assaultInfo(state, stack, target, fx);
+  if (!info.wins && grind < 1) return false;
+  return stack.men > (info.wins ? info.cost : grind);
+}
+
+// Enemy stacks a stack could attack with `room` points to grind with (negative: the order cannot pay for another
+// attack at all). A stack that has acted this turn cannot attack.
+function attackOptions(state, stack, room, fx, grind = null) {
+  if (room < 0 || !canAct(stack) || stack.men < MIN_ATTACKER_MEN) return [];
+  return directTargets(state, stack).filter((t) =>
+    grind === null ? attackOk(state, stack, t, 0, fx) || (room >= 1 && attackOk(state, stack, t, 1, fx)) : room >= grind && attackOk(state, stack, t, grind, fx));
+}
+
+// Offensive points are a pool: the first attack is free, every further attack costs `extraCost` points, and
+// each point left can grind (or shell).
+function attackFee(a) {
+  return a.used.length ? a.extraCost : 0;
+}
+
+// Enemy stacks the given stack may attack from where it stands, grinding with `grind` points.
+export function legalAttacks(state, id, grind = 0) {
   const stack = getStack(state, id);
   const a = activeFor(state, 'attack', stack);
-  if (!a || a.used.includes(id)) return [];
-  // Shelling can leave too few points to pay for the second attack the order still has a charge for.
-  if (a.used.length && a.points < a.extraCost) return [];
-  return attackTargets(state, stack);
+  if (!a || a.used.includes(id) || !Number.isInteger(grind) || grind < 0) return [];
+  return attackOptions(state, stack, a.points - attackFee(a), a.fx, grind);
 }
 
-// Offensive points are a pool: the first attack is free, every further attack costs
-// `extraCost` points, and each remaining point adds +1 strength to one attack.
-export function maxBonus(state) {
+// The most points the next attack can grind with.
+export function maxGrind(state) {
   const a = state.active;
   if (!a || a.kind !== 'attack') return 0;
-  return Math.max(0, a.points - (a.used.length ? a.extraCost : 0));
+  return Math.max(0, a.points - attackFee(a));
 }
 
 function loseMen(state, stack, count) {
@@ -694,10 +744,11 @@ function loseMen(state, stack, count) {
   return lost;
 }
 
-// Artillery: while an Offensive order has points left, they can pay to shell an enemy stack touching one of your
-// own. Bombardment first strips trench chips from the target's hex, 1 per point (2 with Surprise), but never
-// below SHELL_TRENCH_FLOOR chips. Once the hex is down to that, a point-paid shell takes 1 man instead and costs
-// as much as an extra attack, but never reduces a stack below SHELL_FLOOR men. It costs the shooter nothing.
+// Artillery: while an Offensive order has points left, they can pay for a stack to shell an enemy stack next to it.
+// The shooter must be adjacent to its target, free to act and in supply, and shelling is its action for the turn.
+// Bombardment first strips trench chips from the target's hex, 1 point per strip (2 chips with Surprise), but never
+// below SHELL_TRENCH_FLOOR chips. Once the hex is down to that, a shell takes 1 man instead for `manCost` points,
+// but never reduces a stack below SHELL_FLOOR men. It costs the shooter nothing.
 export const SHELL_TRENCH_FLOOR = 1;
 
 function shellEffect(state, target) {
@@ -706,7 +757,7 @@ function shellEffect(state, target) {
   if (chips > SHELL_TRENCH_FLOOR) {
     return { kind: 'trench', cost: 1, chips: Math.min(a?.fx?.ignoreTrenches ? 2 : 1, chips - SHELL_TRENCH_FLOOR) };
   }
-  if (target.men > SHELL_FLOOR) return { kind: 'man', cost: a?.extraCost ?? 2 };
+  if (target.men > SHELL_FLOOR) return { kind: 'man', cost: a?.manCost ?? 2 };
   return null;
 }
 
@@ -714,100 +765,96 @@ export function shellCost(state, target) {
   return shellEffect(state, target)?.cost ?? Infinity;
 }
 
-export function shellTargets(state) {
-  const a = state.active;
-  if (!a || a.kind !== 'attack' || state.pending || state.over) return [];
-  const mine = state.stacks.filter((s) => s.owner === state.current && !isCutOff(state, s));
-  return state.stacks.filter(
-    (t) =>
-      t.owner !== state.current &&
-      a.points >= shellCost(state, t) &&
-      mine.some((s) => neighbors(s.col, s.row).some((n) => n.col === t.col && n.row === t.row)),
-  );
+// Enemy stacks this shooter may shell with the points left.
+export function shellTargets(state, shooterId) {
+  const shooter = getStack(state, shooterId);
+  const a = activeFor(state, 'attack', shooter);
+  if (!a || !canAct(shooter) || isCutOff(state, shooter)) return [];
+  return adjacentStacks(state, shooter, false).filter((t) => a.points >= shellCost(state, t));
 }
 
-export function shell(state, targetId) {
-  const target = shellTargets(state).find((t) => t.id === targetId);
-  if (!target) throw new Error(`Cannot shell ${targetId}`);
+export function shell(state, shooterId, targetId) {
+  const target = shellTargets(state, shooterId).find((t) => t.id === targetId);
+  if (!target) throw new Error(`${shooterId} cannot shell ${targetId}`);
   const next = structuredClone(state);
   const effect = shellEffect(next, target);
   next.active.points -= effect.cost;
   next.active.acted = true;
+  getStack(next, shooterId).fought = true;
   const victim = getStack(next, targetId);
   const paid = `${effect.cost} point${effect.cost === 1 ? '' : 's'}`;
   if (effect.kind === 'trench') {
     const hex = key(victim.col, victim.row);
     next.defense[hex] -= effect.chips;
-    next.log.push(`${next.current}'s artillery shells the trenches at ${targetId} (${paid}): -${effect.chips} chip${effect.chips === 1 ? '' : 's'}, ${next.defense[hex]} left`);
+    next.log.push(`${shooterId} shells the trenches at ${targetId} (${paid}): -${effect.chips} chip${effect.chips === 1 ? '' : 's'}, ${next.defense[hex]} left`);
   } else {
     loseMen(next, victim, 1);
-    next.log.push(`${next.current}'s artillery shells ${targetId} (${paid}): -1 man, ${victim.men} left`);
+    next.log.push(`${shooterId} shells ${targetId} (${paid}): -1 man, ${victim.men} left`);
   }
+  autoFinish(next);
   return next;
 }
 
-export function attack(state, attackerId, defenderId, bonus = 0) {
-  if (!legalAttacks(state, attackerId).some((t) => t.id === defenderId)) {
-    throw new Error(`Illegal attack ${attackerId} -> ${defenderId}`);
-  }
-  const extra = state.active.used.length ? state.active.extraCost : 0;
-  if (!Number.isInteger(bonus) || bonus < 0 || bonus + extra > state.active.points) {
-    throw new Error(`Bonus ${bonus} is not affordable`);
+// An attack, with `grind` points of attrition on top. An assault with strictly more strength wins: the attacker
+// pays the ground's men and the defender (who loses `grind` men) is driven out, or stands and loses HOLD_LOSS if
+// it has nowhere to go. An attacker without the upper hand must grind: both sides lose `grind` men and nobody moves.
+export function attack(state, attackerId, defenderId, grind = 0) {
+  if (!Number.isInteger(grind) || grind < 0) throw new Error(`Grind ${grind} is not valid`);
+  if (!legalAttacks(state, attackerId, grind).some((t) => t.id === defenderId)) {
+    throw new Error(`Illegal attack ${attackerId} -> ${defenderId} (grind ${grind})`);
   }
   const next = structuredClone(state);
   const attacker = getStack(next, attackerId);
   const defender = getStack(next, defenderId);
   const a = next.active;
-  a.points -= bonus + extra;
-  // One more attack is possible only if the pool can pay for it; consume() then ends the order otherwise.
-  a.charges = a.extraCost && a.points >= a.extraCost ? 2 : 1;
+  const info = assaultInfo(next, attacker, defender, a.fx);
+  a.points -= grind + attackFee(a);
+  a.acted = true;
+  a.used.push(attackerId);
   attacker.fought = true;
-  const attackStrength = strength(next, attacker, false) + bonus;
-  const trenches = a.fx.ignoreTrenches ? next.defense[key(defender.col, defender.row)] ?? 0 : 0;
-  const defenseStrength = strength(next, defender, true) - trenches;
-  const verdict =
-    attackStrength > defenseStrength ? 'attacker' : attackStrength < defenseStrength ? 'defender' : 'stalemate';
 
-  // Bloodletting: the attacker pays for the defender's terrain and trench chips (min 1);
-  // the defender pays 1 plus the offensive points spent (artillery weight). Whoever wins.
-  const attackerLoss = loseMen(next, attacker, Math.max(1, fortification(next, defender.col, defender.row)));
-  const breakthrough = verdict === 'attacker' && a.fx.breakthrough;
-  const defenderLoss = loseMen(next, defender, 1 + bonus + (breakthrough ? 1 : 0));
+  const breakthrough = info.wins && a.fx.breakthrough;
+  const attackerLoss = loseMen(next, attacker, info.wins ? info.cost : grind);
+  const defenderLoss = loseMen(next, defender, grind + (breakthrough ? 1 : 0));
   const battle = {
     attackerId,
     defenderId,
-    winnerId: verdict === 'attacker' ? attackerId : null,
+    winnerId: info.wins ? attackerId : null,
     loserId: defenderId,
     defenderCol: defender.col,
     defenderRow: defender.row,
     noRetreat: Boolean(a.fx.noRetreat),
   };
-  const outcome = {
-    attacker: `${attackerId} has the upper hand`,
-    defender: `${defenderId} repels the attack`,
-    stalemate: 'stalemate',
-  }[verdict];
+  const what = info.wins ? 'assaults' : 'grinds down';
   next.log.push(
-    `${attackerId} (${attackStrength}${bonus ? `, incl. +${bonus}` : ''}) attacks ${defenderId} (${defenseStrength}): ` +
-      `${outcome}; ${attackerId} loses ${attackerLoss}, ${defenderId} loses ${defenderLoss}.`,
+    `${attackerId} (${info.attackStrength}) ${what} ${defenderId} (${info.defenseStrength})${grind ? `, grinding ${grind}` : ''}: ` +
+      `${attackerId} loses ${attackerLoss}, ${defenderId} loses ${defenderLoss}.`,
   );
-  // Only an attacker with the upper hand forces the surviving defender to choose.
-  if (verdict === 'attacker' && defender.men > 0) next.pending = battle;
-  else finishBattle(next, battle);
-  consume(next, attackerId);
+  if (info.wins && defender.men > 0) {
+    if (retreatSites(next, defender, battle.noRetreat).length) {
+      next.pending = battle;
+      return next;
+    }
+    const lost = loseMen(next, defender, HOLD_LOSS);
+    next.log.push(`${defenderId} is pocketed, stands and loses ${lost} more man${defender.men === 0 ? ' (destroyed)' : ''}`);
+  }
+  finishBattle(next, battle);
   return next;
 }
 
 // A retreat costs 1 gear, or 1 man if the stack has none, so it needs a chip to spare
 // (free under elastic defence). It must end outside every enemy zone.
-// A cut-off stack cannot retreat either: it must stand, and neither can the victim of "no quarter".
-export function retreatOptions(state) {
-  const pending = state.pending;
-  if (!pending || pending.noRetreat) return [];
-  const loser = getStack(state, pending.loserId);
-  if (isCutOff(state, loser)) return [];
+// A cut-off stack cannot retreat either, and neither can the victim of "no quarter": they are pocketed.
+function retreatSites(state, loser, noRetreat) {
+  if (noRetreat || isCutOff(state, loser)) return [];
   if (!state.elastic[loser.owner] && loser.gear === 0 && loser.men < 2) return [];
   return freeNeighbors(state, loser);
+}
+
+export function retreatOptions(state) {
+  const pending = state.pending;
+  if (!pending) return [];
+  return retreatSites(state, getStack(state, pending.loserId), pending.noRetreat);
 }
 
 function finishBattle(next, battle) {
@@ -831,21 +878,12 @@ function finishBattle(next, battle) {
   // A nation with no stacks left cannot fight on.
   const wiped = wipedNation(next);
   if (wiped) endGame(next, wiped, 'all stacks destroyed');
+  autoFinish(next);
 }
 
 function requirePending(state) {
   if (!state.pending) throw new Error('No battle awaiting a decision');
   return state.pending;
-}
-
-export function resolveHold(state) {
-  const pending = requirePending(state);
-  const next = structuredClone(state);
-  const loser = getStack(next, pending.loserId);
-  const lost = loseMen(next, loser, HOLD_LOSS);
-  next.log.push(`${loser.id} stands and loses ${lost} more man${loser.men === 0 ? ' (destroyed)' : ''}`);
-  finishBattle(next, pending);
-  return next;
 }
 
 export function resolveRetreat(state, col, row) {
@@ -890,7 +928,7 @@ export function mergeStacks(state, sourceId, targetId) {
   const target = getStack(next, targetId);
   target.men += source.men;
   target.gear += source.gear;
-  target.fought = target.fought || source.fought;
+  target.fought = true;
   target.halted = target.halted || source.halted;
   target.stalled = target.stalled || source.stalled;
   target.moved = Math.max(target.moved, source.moved);
@@ -918,6 +956,7 @@ export function splitStack(state, id, col, row) {
   const gearSent = Math.floor(stack.gear / 2);
   stack.men -= sent;
   stack.gear -= gearSent;
+  stack.fought = true;
   const newId = `${stack.owner}${++next.idCounters[stack.owner]}`;
   // The new stack has used its walk getting there.
   next.stacks.push({

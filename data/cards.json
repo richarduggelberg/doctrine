@@ -30,13 +30,14 @@
       "name": "Offensive",
       "kind": "attack",
       "points": [0, 2, 3, 4, 5, 6],
-      "extraCost": 2,
-      "text": "One stack attacks an adjacent enemy for free. {points} points: +1 strength each, or {extraCost} for another attack, or shell an adjacent enemy stack (1 point strips a trench chip from its hex, down to 1 chip; once it is down to 1, {extraCost} points take 1 man, never below 2 men; no loss to you).",
+      "extraCost": 1,
+      "manCost": 2,
+      "text": "Each stack gets one action a turn: walk, shell, assault or grind (merge and split count too). An assault needs more strength (men + gear) than the defender's men + gear + terrain + trench chips + support, and costs the attacker men equal to the ground's terrain and trench chips (at least 1). The beaten stack retreats and the attacker advances; a defender with nowhere to go stands and loses 2 men. A failed or tied assault is not allowed: {points} points grind instead (each point costs both sides 1 man, nobody moves), or add to an assault to hurt the defender. The first attack is free, each further one costs {extraCost} point. A shooter next to its target can shell it: 1 point strips a trench chip, down to 1 chip; then {manCost} points take 1 man, never below 2 men; no loss to you.",
       "faces": {
-        "J": { "name": "Surprise", "fx": { "ignoreTrenches": true }, "text": "Trench chips do not count for the defender in attacks, and each point of shelling strips 2 chips." },
-        "Q": { "name": "Combined arms", "fx": { "extraCost": 1 }, "text": "Extra attacks and shelled men cost only 1 point." },
-        "K": { "name": "No quarter", "fx": { "noRetreat": true }, "text": "A beaten defender cannot retreat." },
-        "A": { "name": "Breakthrough", "fx": { "breakthrough": true }, "text": "The loser loses 1 more man." }
+        "J": { "name": "Surprise", "fx": { "ignoreTrenches": true }, "text": "Trench chips do not count for the defender in assaults, in strength or in cost, and each point of shelling strips 2 chips." },
+        "Q": { "name": "Combined arms", "fx": { "extraCost": 0, "manCost": 1 }, "text": "Extra attacks are free and shelled men cost only 1 point." },
+        "K": { "name": "No quarter", "fx": { "noRetreat": true }, "text": "A beaten defender cannot retreat: it stands and loses 2 men." },
+        "A": { "name": "Breakthrough", "fx": { "breakthrough": true }, "text": "A beaten defender loses 1 more man." }
       }
     },
     "defensive": {
@@ -58,14 +59,14 @@
       "kind": "logistics",
       "points": [1, 2, 2, 3, 4, 4],
       "limit": [1, 2, 3, 3, 3, 3],
-      "railHexes": 2,
+      "railHexes": 4,
       "menu": { "rail": 1, "rally": 2, "merge": 1, "split": 1 },
-      "text": "{points} points: rail +{railHexes} hexes of movement, ignoring terrain stops, once per stack (1), rally +1 gear up to {limit} (2), merge adjacent stacks (1), split a stack (1).",
+      "text": "{points} points: rail +{railHexes} hexes of movement on home soil, ignoring terrain stops, once per stack (1), rally +1 gear up to {limit} (2), merge adjacent stacks (1), split a stack (1).",
       "faces": {
-        "J": { "name": "Rail net", "fx": { "railHexes": 3 }, "text": "Rail gives +3 hexes." },
+        "J": { "name": "Rail net", "fx": { "railHexes": 6 }, "text": "Rail gives +6 hexes." },
         "Q": { "name": "Staff work", "fx": { "bonusPoints": 2 }, "text": "2 extra points." },
         "K": { "name": "Depots", "fx": { "costs": { "rally": 1 }, "limitBonus": 1 }, "text": "Rallying costs 1 and may go one higher." },
-        "A": { "name": "Mobilisation", "fx": { "railHexes": 3, "bonusPoints": 2, "costs": { "rally": 1 }, "limitBonus": 1 }, "text": "Rail +3, 2 extra points, cheap rallies." }
+        "A": { "name": "Mobilisation", "fx": { "railHexes": 6, "bonusPoints": 2, "costs": { "rally": 1 }, "limitBonus": 1 }, "text": "Rail +6, 2 extra points, cheap rallies." }
       }
     },
     "willingness": {

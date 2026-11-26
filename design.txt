@@ -1019,3 +1019,67 @@ M10 - PLAYING CARDS, TIERS, LONGER WALKS (supersedes M3 deck, M9 items 2, 3, 7,
     instead of 8, A 17 / B 43. The shelling skew (the Offensive major gains
     most) was already there with the old rules (A 9 / B 31); the bots pair only
     spades. Needs human playtests; knobs: man cost, trench floor, supplyRange.
+
+21. COMBAT REWORK: ONE ACTION PER STACK, ASSAULT / GRIND / SHELL (supersedes
+    the attack, bonus, tie, Stand and shelling rules of items 6-8 of M9, 13, 16
+    and 20 where they differ)
+  - ONE ACTION PER TURN. A stack may walk, shell, assault/grind, merge or
+    split, and only one of them. Forced moves (retreat, advance) are free.
+    Trench, rally, relief and recruit are pool orders, not stack actions. A
+    stack that walked cannot fight; one that fought cannot walk.
+  - ASSAULT. Strength is chips only: attacker men + gear against defender men
+    + gear + terrain + trenches + adjacent support. Offensive points no longer
+    add strength. The assault must win outright; failed and tied assaults are
+    illegal (grind or shell instead). The attacker pays men for the ground:
+    max(1, terrain + trenches), and must keep more men than that. The defender
+    loses no men for losing, only the ground: it retreats (losing a gear chip
+    first, else a man; free under Elastic defence). The attacker advances only
+    into an empty hex and gains 1 gear for taking it.
+  - POCKETED DEFENDER. The Stand choice is gone. A beaten defender with no
+    retreat (surrounded, cut off, a single man without gear) or facing No
+    quarter stands and loses HOLD_LOSS = 2 men, keeping the hex unless
+    it dies.
+  - GRIND. 1 Offensive point = 1 man lost by the defender. In a winning assault
+    it is extra pressure on the defender only. Without the upper hand it is a
+    pure grind: both stacks lose `grind` men, nobody moves, no ground changes
+    hands. The attacker needs more men than the grind and at least 2.
+  - POINTS. The first attack of an order is free. Each further attack costs
+    `extraCost` = 1 point (0 with Combined arms); the stack making it must not
+    have acted. Grind points come from what is left.
+  - SHELLING. The shooter must be adjacent to its target, not cut off, and not
+    have acted; shelling is its action. A shot strips 1 chip (2 with Surprise),
+    never below 1 chip, then takes 1 man for `manCost` points (2, or 1 with
+    Combined arms), never below 2 men. The shooter pays nothing. A shell from
+    one stack softens the target for an assault by another, so a wide front
+    can surround, shell with several stacks and then assault.
+  - The order ends by itself when no stack has a legal attack or shot left.
+  - Faces: J Surprise (trenches ignored in strength, cost, and 2 chips per
+    shell point); Q Combined arms (extra attacks free, man shells cost 1);
+    K No quarter (a beaten defender is not driven out; it stands and loses 2);
+    A Breakthrough (a beaten defender loses 1 more man).
+  - Known risk: whoever walks adjacent gets struck first, so both sides may
+    sit at distance 2. Accepted for now; the answers are digging in on
+    arrival (walk, then a Defence order) and keeping Offensive cards in hand
+    as the defender. Fallbacks if playtests stall: an exhaustion tick for the
+    side holding fewer towns, or some stacks starting adjacent.
+  - Simulation (100 games, naive bots: assault the cheapest win, shell to set
+    up, grind 1): A 37 / B 63, all ended by will to fight broken, ~22 rounds,
+    casualties A 49 / B 28, exhaustion A 3 / B 18. No stalls. Mirrored
+    doctrines: A 43 / B 17 of 60 (first-mover edge); shelling off: A 19 / B 21
+    of 40. Bots rarely shell (about 1 shot per game), assaults ~8 and grinds
+    ~14 per game. Knobs: grind rate, HOLD_LOSS, trench floor, the exhaustion
+    tick, face effects.
+
+22. RAIL ON HOME SOIL ONLY (supersedes the rail line of item 20)
+  - A Logistics order's rail point gives one stack +4 hexes of walk (+6 with
+    Rail net / Mobilisation), once per stack per turn, still 1 point.
+  - The rail hexes are only usable along a path that lies entirely on the
+    stack's own country (start hex included); the stack must start on home
+    soil to be eligible. Rail hexes ignore the terrain and trench stop; an
+    enemy zone still ends them. The ordinary 2-hex walk is unchanged and can
+    cross the border. Rail extends the walk, so the stack still used its
+    action and cannot fight afterwards.
+  - Intent: defenders shift reserves along their own network; attackers beyond
+    their railhead walk. Sim (100 games, bots rail the stack furthest from the
+    front, which costs them rallies): A 44 / B 56, ~22 rounds, casualties
+    A 46 / B 27. Knobs: railHexes (4), face values (6), home-soil rule.

@@ -1,12 +1,12 @@
 // Bot-vs-bot balance check: node tools/simulate.mjs [games] [maxTurns] [slackPerExhaustion]
 import { readFileSync } from 'node:fs';
 import {
-  applyPool, applyToStack, attack, cardIssue, chooseMode, createGame, discardCard, eligibleStacks,
+  applyPool, applyToStack, assaultInfo, attack, cardIssue, chooseMode, createGame, discardCard, eligibleStacks,
   endOrder, endTurn, fortification, getStack, improvise, improviseIssue, isFace, legalAttacks, legalMerges, legalMoves,
-  maxBonus, mergeStacks, moveStack, setIssue, placeRecruit, playCard, recruitSites, resolveHold, resolveRetreat, retreatOptions, shell, shellCost,
-  shellTargets, strength,
+  maxGrind, mergeStacks, moveStack, setIssue, placeRecruit, playCard, recruitSites, resolveRetreat, retreatOptions, shell,
+  shellTargets, SHELL_FLOOR, SHELL_TRENCH_FLOOR,
 } from '../js/engine.js';
-import { distance } from '../js/hex.js';
+import { distance, key } from '../js/hex.js';
 
 const read = (path) => JSON.parse(readFileSync(new URL(path, import.meta.url)));
 const map = read('../data/map.json');
@@ -35,33 +35,59 @@ const enemyOf = (state) => state.stacks.filter((s) => s.owner !== state.current)
 const nearestEnemy = (state, hex) => Math.min(...enemyOf(state).map((e) => distance(hex, e)));
 const isFront = (state, stack) => nearestEnemy(state, stack) <= 2;
 
-// The defender of a pending battle stands if healthy, otherwise retreats when it can.
+// The beaten defender of a pending battle retreats toward home (a pocketed one never gets here: it stands at once).
 function decide(state) {
   const loser = getStack(state, state.pending.loserId);
-  const options = retreatOptions(state);
-  if (options.length > 0 && (state.elastic[loser.owner] || loser.men < 4)) {
-    const home = state.capitals[loser.owner];
-    const best = options.sort((a, b) => distance(a, home) - distance(b, home))[0];
-    return resolveRetreat(state, best.col, best.row);
-  }
-  return resolveHold(state);
+  const home = state.capitals[loser.owner];
+  const best = retreatOptions(state).sort((a, b) => distance(a, home) - distance(b, home))[0];
+  return resolveRetreat(state, best.col, best.row);
 }
 
-// The cheapest attack the order's points can turn into an upper hand. A weary nation also launches
-// hopeless attacks (up to `slack` short), to bleed the enemy rather than sit still.
-function bestAttack(state, slack) {
-  let best = null;
-  const cap = maxBonus(state);
-  for (const stack of eligibleStacks(state)) {
-    for (const target of legalAttacks(state, stack.id)) {
-      const need = strength(state, target, true) - strength(state, stack, false) + 1;
-      if (need > cap + slack) continue;
-      const bonus = Math.min(Math.max(0, need), cap);
-      const score = (need <= cap ? 100 : 0) - bonus * 10 - strength(state, target, true);
-      if (!best || score > best.score) best = { stack, target, bonus, score };
+const ownAdjacent = (state, target) => state.stacks.filter((s) => s.owner === state.current && distance(s, target) === 1);
+
+// Plan an attack order: assault where the odds are already good (cheapest ground first); otherwise shell a target
+// that one assaulter could then beat, using other adjacent stacks as shooters; otherwise grind a weaker enemy.
+function attackStep(state) {
+  const a = state.active;
+  const stacks = eligibleStacks(state);
+  let win = null;
+  for (const stack of stacks) {
+    for (const target of legalAttacks(state, stack.id, 0)) {
+      const info = assaultInfo(state, stack, target, a.fx);
+      if (!info.wins) continue;
+      const score = -info.cost * 10 + target.men - info.attackStrength + info.defenseStrength;
+      if (!win || score > win.score) win = { stack, target, score };
     }
   }
-  return best;
+  if (win) {
+    const grind = Math.min(maxGrind(state), 1);
+    const next = attack(state, win.stack.id, win.target.id, grind);
+    return next.pending ? decide(next) : next;
+  }
+  if (process.env.SHELL !== '0') {
+    let plan = null;
+    for (const stack of stacks) {
+      for (const target of legalAttacks(state, stack.id, 1)) {
+        const info = assaultInfo(state, stack, target, a.fx);
+        const chips = Math.max(0, (state.defense[key(target.col, target.row)] ?? 0) - SHELL_TRENCH_FLOOR);
+        const men = Math.max(0, target.men - SHELL_FLOOR);
+        const need = info.defenseStrength - info.attackStrength + 1;
+        const cost = Math.min(need, chips) + Math.max(0, need - chips) * a.manCost;
+        if (need > chips + men || cost > a.points || stack.men <= 1) continue;
+        const shooter = ownAdjacent(state, target).find((s) => s.id !== stack.id && shellTargets(state, s.id).some((t) => t.id === target.id));
+        if (shooter && (!plan || cost < plan.cost)) plan = { shooter, target, cost };
+      }
+    }
+    if (plan) return shell(state, plan.shooter.id, plan.target.id);
+  }
+  // Grind the enemy that is not stronger in men, with a single point.
+  if (maxGrind(state) >= 1) {
+    for (const stack of stacks) {
+      const target = legalAttacks(state, stack.id, 1).filter((t) => t.men <= stack.men).sort((x, y) => y.men - x.men)[0];
+      if (target && stack.men >= 3) return attack(state, stack.id, target.id, 1);
+    }
+  }
+  return null;
 }
 
 // One step of a pool card: spend points on the most useful menu entry, or null if nothing is worth it.
@@ -89,6 +115,11 @@ function poolStep(state) {
         if (target && st.men <= 3) return mergeStacks(merging, st.id, target.id);
       }
     }
+    if (a.points >= menu.rail) {
+      const railing = chooseMode(state, 'rail');
+      const target = eligibleStacks(railing).filter((s) => nearestEnemy(state, s) >= 4).sort((x, y) => y.men - x.men)[0];
+      if (target) return applyToStack(railing, target.id);
+    }
     if (a.points >= menu.rally) {
       const rallying = chooseMode(state, 'rally');
       const target = eligibleStacks(rallying).filter(front).sort((x, y) => y.men - x.men)[0];
@@ -108,28 +139,16 @@ function poolStep(state) {
 
 // Use the active order sensibly; null if nothing is worthwhile.
 function act(state) {
-  if (state.active.kind === 'attack') {
-    const pick = bestAttack(state, Math.floor(state.exhaustion[state.current] / SLACK_PER_EXHAUSTION));
-    // Without a winning attack in reach, bombard the weakest-protected enemy first to soften it up.
-    const targets = process.env.SHELL === '0' ? [] : shellTargets(state);
-    if (targets.length && (!pick || pick.score < 100)) {
-      const cheapest = targets.sort((a, b) => shellCost(state, a) - shellCost(state, b) || b.men - a.men)[0];
-      return shell(state, cheapest.id);
-    }
-    if (!pick) return null;
-    const next = attack(state, pick.stack.id, pick.target.id, pick.bonus);
-    return next.pending ? decide(next) : next;
-  }
-  return poolStep(state);
+  return state.active.kind === 'attack' ? attackStep(state) : poolStep(state);
 }
 
-// Reserves walk toward the enemy (or its capital); trenched stacks only leave their trench when the hand holds an
-// offensive card to follow the walk up with an attack.
+// Reserves walk toward the enemy (or its capital) once the fighting stacks have acted; stacks that fought or
+// merged cannot walk. Trenched stacks only leave their trench when the hand holds an offensive card to follow up.
 function freeMoves(state) {
   const enemyCap = state.capitals[state.current === 'A' ? 'B' : 'A'];
   const offensive = state.hands[state.current].some((c) => c.suit === 'aggressive');
   for (const { id } of state.stacks.filter((s) => s.owner === state.current)) {
-    for (let step = 0; step < state.move; step++) {
+    for (let step = 0; step < state.move + getStack(state, id).rail; step++) {
       const stack = getStack(state, id);
       if (fortification(state, stack.col, stack.row) > 0 && !(offensive && stack.men >= 3)) break;
       const goal = (hex) => (nearestEnemy(state, hex) <= 4 ? nearestEnemy(state, hex) : distance(hex, enemyCap));
@@ -185,13 +204,13 @@ function improvisations(state) {
   return options;
 }
 
-function takeTurn(state) {
-  state = freeMoves(musterRecruits(state));
+function playOrders(state, suits) {
   for (let guard = 0; guard < MAX_ORDERS && !state.over; guard++) {
     let acted = false;
     const opens = [
-      ...candidates(state).map((uids) => (s) => playCard(s, ...uids)),
-      ...improvisations(state).map((args) => (s) => improvise(s, ...args)),
+      ...candidates(state).filter(([uid]) => suits.includes(state.hands[state.current].find((c) => c.uid === uid).suit))
+        .map((uids) => (s) => playCard(s, ...uids)),
+      ...improvisations(state).filter(([, , to]) => suits.includes(to)).map((args) => (s) => improvise(s, ...args)),
     ];
     for (const open of opens) {
       let current = open(state);
@@ -212,6 +231,15 @@ function takeTurn(state) {
     }
     if (!acted) break;
   }
+  return state;
+}
+
+// Fight first (Offensive orders, with the stacks already in contact), then rail and walk the rest forward, then play
+// the other orders (so a stack that just walked up can dig in).
+function takeTurn(state) {
+  state = playOrders(musterRecruits(state), ['aggressive']);
+  state = playOrders(state, ['reorganizational']);
+  state = playOrders(freeMoves(state), ['defensive', 'willingness']);
   const hand = state.hands[state.current];
   // Dead cards (no stack can use them) are thrown away to make room in the hand.
   for (const dead of hand.filter((c) => /No stack/.test(cardIssue(state, c) ?? ''))) {
@@ -241,7 +269,7 @@ for (let seed = 1; seed <= games; seed++) {
 // STATS=1 prints how often each kind of event occurred across all games.
 if (process.env.STATS) {
   const kinds = ['moved', 'Trench built', 'digs in', 'rallies', 'merges', 'splits', 'rail', 'relief',
-    'recruit', 'retreats', 'stands', 'upper hand', 'repels', 'stalemate', 'advances'];
+      'recruit', 'retreats', 'pocketed', 'assaults', 'grinds down', 'shells the trenches', ': -1 man', 'advances'];
   const lines = results.flatMap((r) => r.log);
   console.log(Object.fromEntries(kinds.map((k) => [k, lines.filter((l) => l.includes(k)).length])));
 }

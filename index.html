@@ -42,7 +42,6 @@
     <div id="info"></div>
     <div id="decision" hidden>
       <p id="decision-text"></p>
-      <button id="hold">Stand (lose 1 more man)</button>
     </div>
     <h2>Terrain</h2>
     <div class="legend">
@@ -60,7 +59,10 @@
       <span class="swatch trench"></span><span>Trench chip: above terrain, +1 defense each. A hex with no stack keeps at most one chip</span>
       <span class="swatch"></span><span>Line: a defender gets +1 for each friendly stack on an adjacent hex (max +2). Stacks side by side hold better than lone ones; the attacker gets nothing</span>
       <span class="swatch"></span><span>Recruits: at the start of your turn you muster 1 / 1 / 2 / 3 recruits (Willingness doctrine level 0-3). Click a highlighted empty town on your own soil (not enemy-held, not surrounded) to place each as a new 1-man stack. Unplaced recruits are lost</span>
-      <span class="swatch"></span><span>Artillery: with an Offensive order, pay 1 point to strip a trench chip from an adjacent enemy stack's hex (down to 1 chip), then 2 points per man (1 with Combined arms) at no cost to yours; never below 2 men</span>
+      <span class="swatch"></span><span>Actions: each stack gets one action a turn: walk, shell, assault/grind, merge or split. A stack that walked cannot fight, and one that fought cannot walk. Trenches, rally, relief, recruits and rail are not actions; forced moves (a retreat, the advance after a win) are free</span>
+      <span class="swatch"></span><span>Assault: you need strictly more strength (men + gear) than the defender's men + gear + terrain + trench chips + support. You pay in men (the terrain and trench chips, at least 1); the defender retreats and you advance. A defender with nowhere to go stands and loses 2 men. Failed or tied assaults are not allowed: grind or shell instead</span>
+      <span class="swatch"></span><span>Grind: each Offensive point spent on an attack costs both sides 1 man and nobody moves (on a winning assault only the defender pays). The first attack of an order is free, each further one costs 1 point</span>
+      <span class="swatch"></span><span>Artillery: the shooter must be adjacent to its target and shelling is its action. With an Offensive order, pay 1 point to strip a trench chip from the target's hex (down to 1 chip), then 2 points per man (1 with Combined arms) at no cost to yours; never below 2 men</span>
       <span class="swatch terr-A"></span><span>France (Player A)</span>
       <span class="swatch terr-B"></span><span>Germany (Player B)</span>
       <span class="swatch terr-N"></span><span>Belgium, Luxembourg, the Netherlands: neutral ground, nobody's territory (borders are the dark lines along hex edges)</span>
@@ -71,7 +73,7 @@
       <span class="swatch"></span><span>Towns: ~100 named places, bigger label = bigger place. A town on French or German soil taken by the enemy gets a flag and a dashed outline in the captor's colour; every turn its owner gains +1 exhaustion per town lost (see Exhaustion). Standing on it again retakes it</span>
       <span class="swatch"></span><span>Exhaustion: each nation has a public meter with a fixed limit (55). It fills with every man lost, +1 every turn, and the town ticks above. Home Front relief lowers it. A full meter loses the war</span>
       <span class="swatch front"></span><span>Front line: each side draws the edge of the hexes nearer to its stacks than to the enemy's (red = A, blue = B); hexes equally near belong to nobody. It shifts as stacks advance and fall back. Toggle it in the header</span>
-      <span class="swatch zoc"></span><span>Enemy zone of control: entering it is free but ends that stack's walk, as does entering a hex with terrain or trench chips (rail ignores the latter); a stack inside a zone can only step out</span>
+      <span class="swatch zoc"></span><span>Enemy zone of control: entering it is free but ends that stack's walk, as does entering a hex with terrain or trench chips (rail ignores the latter, on home soil); a stack inside a zone can only step out</span>
       <span class="swatch"></span><span>Cards: a normal 52-card deck per player (no jokers). &spades; Offensive (only this suit attacks), &clubs; Defence, &diams; Logistics, &hearts; Home Front. Ranks 2-4 base, 5-7 +1, 8-10 +2, J-K +3, Ace +4; doctrine shifts the tier up or down (it can go above the printed band). Any number of same-suit cards can be played together as a set for one stronger order: their points add up, plus 1 per extra card; faces and aces can join but lose their abilities. Play as many orders as you have cards: you start with 4 cards, draw 2 at the end of each turn, and hold at most 7, so saving cards builds up an offensive. You can discard any number of cards, but it does nothing (no replacement); it only makes room under the cap. Improvise: discard any two cards of the same suit together to play a plain rank-2 order of any suit (the cards lose their abilities). J, Q, K and A have special abilities</span>
     </div>
     <h2>Log</h2>

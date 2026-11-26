@@ -2,8 +2,8 @@ import {
   applyPool, applyToStack, attack, breakScore, cardIssue, cardText, chooseMode, createGame, discardCard,
   doctrineLevel, eligibleStacks, endOrder, endTurn, getStack, IMPROVISED_RANK, improvise, improviseIssue, inEnemyZoc, isCutOff,
   isDirectOrder, isFace, legalAttacks,
-  legalMerges, legalMoves, legalSplits, mergeStacks, moveStack, maxBonus, needsTarget, orderInfo, setIssue, playCard,
-  rankLabel, recruitSites, resolveHold, resolveRetreat, retreatOptions, shell, shellTargets, splitStack, strength, support, terrainBonus, featuresAt, townsLost,
+  legalMerges, legalMoves, legalSplits, mergeStacks, moveStack, maxGrind, needsTarget, orderInfo, setIssue, playCard,
+  rankLabel, recruitSites, resolveRetreat, retreatOptions, shell, shellTargets, splitStack, strength, support, terrainBonus, featuresAt, townsLost, assaultInfo,
   placeRecruit,
 } from './engine.js';
 import { renderBoard } from './render.js';
@@ -36,10 +36,10 @@ const setEl = $('set-bar');
 const overPanel = $('over');
 
 const INSTRUCTIONS = {
-  attack: 'Select a highlighted stack, then click a red-dashed adjacent enemy to attack it. Shell first if you want artillery: it is paid from the same points.',
+  attack: 'Select a highlighted stack, then click a red-dashed adjacent enemy: an assault if you have more strength (you pay men), or pick a grind number first to wear it down. Or use Shell: select a stack next to the target. Each stack acts once a turn.',
   'defend:trench': 'Click a highlighted stack to add a trench chip to its hex.',
   defend: 'Choose what to spend points on.',
-  'logistics:rail': 'Click a highlighted stack: it may walk further this turn.',
+  'logistics:rail': 'Click a highlighted stack on home soil: it may walk further this turn, along home soil only.',
   'logistics:rally': 'Click a highlighted stack to give it 1 gear.',
   'logistics:merge': 'Select a highlighted stack, then a green-dashed adjacent friendly stack to merge into.',
   'logistics:split': 'Select a highlighted stack, then an empty adjacent hex to send half of it there.',
@@ -88,12 +88,12 @@ function newGame() {
 
 function targetsFor(id) {
   if (shellMode && state.active?.kind === 'attack' && !state.pending) {
-    return { hexes: [], enemies: shellTargets(state), friends: [] };
+    return { hexes: [], enemies: id ? shellTargets(state, id) : [], friends: [] };
   }
   if (!id || state.pending) return { hexes: [], enemies: [], friends: [] };
   return {
     hexes: [...(state.active ? [] : legalMoves(state, id)), ...legalSplits(state, id)],
-    enemies: legalAttacks(state, id),
+    enemies: legalAttacks(state, id, bonusChoice),
     friends: legalMerges(state, id),
   };
 }
@@ -140,6 +140,12 @@ function draw() {
     .join('');
 }
 
+const menText = (n) => `${n} ${n === 1 ? 'man' : 'men'}`;
+
+function canShell() {
+  return state.stacks.some((s) => s.owner === state.current && shellTargets(state, s.id).length > 0);
+}
+
 function drawInfo() {
   const stack = selectedId && getStack(state, selectedId);
   const muster = state.recruits[state.current] > 0 && !state.over
@@ -151,11 +157,17 @@ function drawInfo() {
   const lines = [
     `${stack.id}${stack.army ? ` (${stack.army})` : ''}: ${stack.men} men chips${state.menPerChip ? ` (~${(stack.men * state.menPerChip).toLocaleString('en-US')} soldiers)` : ''} + ${stack.gear} gear on ${describeTerrain(stack.col, stack.row)} ` +
       `(${stack.col},${stack.row}). Defends at ${strength(state, stack, true)}${support(state, stack) ? ` (incl. +${support(state, stack)} from neighbouring stacks)` : ''}.` +
-      `${stack.fought ? ' Fought this turn: cannot walk.' : stack.halted ? ' Halted in an enemy zone.' : stack.stalled && stack.rail === 0 ? ' Stopped on rough or fortified ground.' : stack.moved ? ` Walked ${stack.moved} hex(es) this turn.` : ''}` +
+      `${stack.fought ? ' Acted this turn (fought, merged or split): it cannot walk or fight again.' : stack.halted ? ' Halted in an enemy zone.' : stack.stalled && stack.rail === 0 ? ' Stopped on rough or fortified ground.' : stack.moved ? ` Walked ${stack.moved} hex(es) this turn: it cannot fight.` : ''}` +
       `${isCutOff(state, stack) ? ' SURROUNDED: no supply path home, it can do nothing and bleeds a gear chip, then a man, every turn.' : ''}`,
   ];
-  for (const target of legalAttacks(state, stack.id)) {
-    lines.push(`Attack ${target.id}: ${strength(state, stack, false) + bonusChoice} vs ${strength(state, target, true)} (a tie is a stalemate)`);
+  if (state.active?.kind === 'attack') {
+    for (const target of legalAttacks(state, stack.id, bonusChoice)) {
+      const info = assaultInfo(state, stack, target, state.active.fx);
+      lines.push(info.wins
+        ? `Assault ${target.id}: ${info.attackStrength} vs ${info.defenseStrength}. You lose ${menText(info.cost)}, ` +
+          `it loses ${menText(bonusChoice)} and must retreat.`
+        : `Grind ${target.id}: ${info.attackStrength} vs ${info.defenseStrength} is no win, so both sides lose ${menText(bonusChoice)} and nobody moves.`);
+    }
   }
   infoPanel.innerHTML = lines.map((line) => `<div>${line}</div>`).join('');
 }
@@ -188,11 +200,11 @@ function drawOrder() {
     shellMode = false;
     return;
   }
-  if (active.kind !== 'attack' || !shellTargets(state).length) shellMode = false;
+  if (active.kind !== 'attack' || !canShell()) shellMode = false;
   const pool = Boolean(active.menu);
-  const max = maxBonus(state);
+  const max = maxGrind(state);
   bonusChoice = Math.min(bonusChoice, max);
-  const left = active.extraCost || pool ? ` (${active.points} points left)` : '';
+  const left = active.extraCost || pool || active.kind === 'attack' ? ` (${active.points} points left)` : '';
   const key = pool && active.mode ? `${active.kind}:${active.mode}` : active.kind;
   orderText.textContent = `${active.name}${left}: ${INSTRUCTIONS[key] ?? INSTRUCTIONS[active.kind]}`;
   if (pool && Object.keys(active.menu).length > 1) {
@@ -204,16 +216,15 @@ function drawOrder() {
   if (active.kind === 'attack' && !state.pending && active.points > 0) {
     modesEl.hidden = false;
     modesEl.innerHTML =
-      `<button data-shell="0" class="${shellMode ? '' : 'on'}">Attack</button> ` +
-      `<button data-shell="1" class="${shellMode ? 'on' : ''}" ${shellTargets(state).length || shellMode ? '' : 'disabled'}>` +
-      `Shell (strip a trench chip: 1 point; take a man: ${active.extraCost || 2} points)</button>`;
+      `<button data-shell="0" class="${shellMode ? '' : 'on'}">Assault / grind</button> ` +
+      `<button data-shell="1" class="${shellMode ? 'on' : ''}" ${canShell() || shellMode ? '' : 'disabled'}>` +
+      `Shell (strip a trench chip: 1 point; take a man: ${active.manCost} points)</button>`;
   }
   if (active.kind === 'attack' && !state.pending && max > 0 && !shellMode) {
     bonusEl.hidden = false;
-    bonusEl.innerHTML = 'Spend on this attack: ' + Array.from({ length: max + 1 }, (_, n) =>
-      `<button data-bonus="${n}" class="${n === bonusChoice ? 'on' : ''}">+${n}</button>`).join('') +
-      (active.used.length === 0 && active.extraCost && active.points >= active.extraCost
-        ? ` <small>(${active.extraCost} points buy an extra attack)</small>` : '');
+    bonusEl.innerHTML = 'Grind with: ' + Array.from({ length: max + 1 }, (_, n) =>
+      `<button data-bonus="${n}" class="${n === bonusChoice ? 'on' : ''}">${n}</button>`).join('') +
+      (active.used.length === 0 && active.extraCost ? ` <small>(each further attack costs ${active.extraCost} point)</small>` : '');
   }
   endOrderButton.textContent = active.acted || active.used.length ? 'Finish order' : 'Cancel order';
   endOrderButton.disabled = Boolean(state.pending);
@@ -224,12 +235,7 @@ function drawDecision() {
   decisionPanel.hidden = !pending;
   if (!pending) return;
   const loser = getStack(state, pending.loserId);
-  const canRetreat = retreatOptions(state).length > 0;
-  decisionText.textContent =
-    `Player ${loser.owner}: ${loser.id} is overpowered. Stand (lose 1 more man), ` +
-    (canRetreat
-      ? `or click a highlighted hex to retreat (lose ${loser.gear > 0 ? '1 gear' : '1 man'}).`
-      : 'it cannot retreat.');
+  decisionText.textContent = `Player ${loser.owner}: ${loser.id} is overpowered. Click a highlighted hex to retreat (lose ${loser.gear > 0 ? '1 gear' : '1 man'}).`;
 }
 
 function drawOver() {
@@ -343,7 +349,10 @@ svg.addEventListener('click', (event) => {
     const id = stackEl.dataset.stack;
     const t = targetsFor(selectedId);
     if (t.enemies.some((s) => s.id === id)) {
-      if (shellMode) return attempt(() => shell(state, id));
+      if (shellMode) {
+        const shooter = selectedId;
+        return attempt(() => shell(state, shooter, id));
+      }
       const from = selectedId;
       const bonus = bonusChoice;
       return attempt(() => attack(state, from, id, bonus));
@@ -418,7 +427,6 @@ modesEl.addEventListener('click', (event) => {
   if (shellButton) {
     if (!shellButton.disabled) {
       shellMode = shellButton.dataset.shell === '1';
-      selectedId = null;
       draw();
     }
     return;
@@ -440,7 +448,6 @@ improviseEl.addEventListener('click', (event) => {
     attempt(() => improvise(state, a, b, button.dataset.improviseSuit));
   }
 });
-$('hold').addEventListener('click', () => attempt(() => resolveHold(state)));
 endOrderButton.addEventListener('click', () => attempt(() => endOrder(state)));
 endTurnButton.addEventListener('click', () => attempt(() => endTurn(state)));
 $('over-new').addEventListener('click', newGame);
