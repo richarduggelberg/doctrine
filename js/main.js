@@ -2,7 +2,7 @@ import {
   applyPool, applyToStack, attack, breakScore, cardIssue, cardText, chooseMode, createGame, discardCard,
   doctrineLevel, eligibleStacks, endOrder, endTurn, getStack, IMPROVISED_RANK, improvise, improviseIssue, inEnemyZoc, isCutOff,
   isDirectOrder, isFace, legalAttacks,
-  legalMerges, legalMoves, legalSplits, mergeStacks, moveStack, maxGrind, needsTarget, orderInfo, setIssue, playCard,
+  legalMerges, legalMoves, legalSplits, mergeStacks, moveStack, needsTarget, orderInfo, setIssue, playCard,
   rankLabel, recruitSites, resolveRetreat, retreatOptions, shell, shellTargets, splitStack, strength, support, terrainBonus, featuresAt, townsLost, assaultInfo,
   placeRecruit,
 } from './engine.js';
@@ -25,7 +25,6 @@ const decisionPanel = $('decision');
 const decisionText = $('decision-text');
 const orderPanel = $('order');
 const orderText = $('order-text');
-const bonusEl = $('bonus');
 const modesEl = $('modes');
 const endOrderButton = $('end-order');
 const statusLine = $('status');
@@ -36,7 +35,7 @@ const setEl = $('set-bar');
 const overPanel = $('over');
 
 const INSTRUCTIONS = {
-  attack: 'Select a highlighted stack, then click a red-dashed adjacent enemy: an assault if you have more strength (you pay men), or pick a grind number first to wear it down. Or use Shell: select a stack next to the target. Each stack acts once a turn.',
+  attack: 'Select a highlighted stack, then click a red-dashed adjacent enemy: an assault if you have more strength (you pay men), otherwise a 1-for-1 grind. Each attack costs 1 point. Or use Shell: select a stack next to the target. Each stack acts once a turn.',
   'defend:trench': 'Click a highlighted stack to add a trench chip to its hex.',
   defend: 'Choose what to spend points on.',
   'logistics:rail': 'Click a highlighted stack on home soil: it may walk further this turn, along home soil only.',
@@ -57,7 +56,6 @@ let map;
 let config;
 let state;
 let selectedId = null;
-let bonusChoice = 0;
 // Artillery mode of an Offensive order: clicking an adjacent enemy shells it instead of attacking.
 let shellMode = false;
 // Cards picked from the hand to be played together as one set (all of one suit).
@@ -75,7 +73,6 @@ async function start() {
 
 function resetPicks() {
   selectedId = null;
-  bonusChoice = 0;
   setUids = [];
   improviseUids = [];
 }
@@ -93,7 +90,7 @@ function targetsFor(id) {
   if (!id || state.pending) return { hexes: [], enemies: [], friends: [] };
   return {
     hexes: [...(state.active ? [] : legalMoves(state, id)), ...legalSplits(state, id)],
-    enemies: legalAttacks(state, id, bonusChoice),
+    enemies: legalAttacks(state, id),
     friends: legalMerges(state, id),
   };
 }
@@ -161,12 +158,12 @@ function drawInfo() {
       `${isCutOff(state, stack) ? ' SURROUNDED: no supply path home, it can do nothing and bleeds a gear chip, then a man, every turn.' : ''}`,
   ];
   if (state.active?.kind === 'attack') {
-    for (const target of legalAttacks(state, stack.id, bonusChoice)) {
+    for (const target of legalAttacks(state, stack.id)) {
       const info = assaultInfo(state, stack, target, state.active.fx);
       lines.push(info.wins
         ? `Assault ${target.id}: ${info.attackStrength} vs ${info.defenseStrength}. You lose ${menText(info.cost)}, ` +
-          `it loses ${menText(bonusChoice)} and must retreat.`
-        : `Grind ${target.id}: ${info.attackStrength} vs ${info.defenseStrength} is no win, so both sides lose ${menText(bonusChoice)} and nobody moves.`);
+          `it must retreat.`
+        : `Grind ${target.id}: ${info.attackStrength} vs ${info.defenseStrength} is no win, so both sides lose 1 man and nobody moves.`);
     }
   }
   infoPanel.innerHTML = lines.map((line) => `<div>${line}</div>`).join('');
@@ -194,7 +191,6 @@ function drawStatus() {
 function drawOrder() {
   const active = state.active;
   orderPanel.hidden = !active;
-  bonusEl.hidden = true;
   modesEl.hidden = true;
   if (!active) {
     shellMode = false;
@@ -202,9 +198,7 @@ function drawOrder() {
   }
   if (active.kind !== 'attack' || !canShell()) shellMode = false;
   const pool = Boolean(active.menu);
-  const max = maxGrind(state);
-  bonusChoice = Math.min(bonusChoice, max);
-  const left = active.extraCost || pool || active.kind === 'attack' ? ` (${active.points} points left)` : '';
+  const left = active.attackCost || pool || active.kind === 'attack' ? ` (${active.points} points left)` : '';
   const key = pool && active.mode ? `${active.kind}:${active.mode}` : active.kind;
   orderText.textContent = `${active.name}${left}: ${INSTRUCTIONS[key] ?? INSTRUCTIONS[active.kind]}`;
   if (pool && Object.keys(active.menu).length > 1) {
@@ -219,12 +213,6 @@ function drawOrder() {
       `<button data-shell="0" class="${shellMode ? '' : 'on'}">Assault / grind</button> ` +
       `<button data-shell="1" class="${shellMode ? 'on' : ''}" ${canShell() || shellMode ? '' : 'disabled'}>` +
       `Shell (strip a trench chip: 1 point; take a man: ${active.manCost} points)</button>`;
-  }
-  if (active.kind === 'attack' && !state.pending && max > 0 && !shellMode) {
-    bonusEl.hidden = false;
-    bonusEl.innerHTML = 'Grind with: ' + Array.from({ length: max + 1 }, (_, n) =>
-      `<button data-bonus="${n}" class="${n === bonusChoice ? 'on' : ''}">${n}</button>`).join('') +
-      (active.used.length === 0 && active.extraCost ? ` <small>(each further attack costs ${active.extraCost} point)</small>` : '');
   }
   endOrderButton.textContent = active.acted || active.used.length ? 'Finish order' : 'Cancel order';
   endOrderButton.disabled = Boolean(state.pending);
@@ -354,8 +342,7 @@ svg.addEventListener('click', (event) => {
         return attempt(() => shell(state, shooter, id));
       }
       const from = selectedId;
-      const bonus = bonusChoice;
-      return attempt(() => attack(state, from, id, bonus));
+      return attempt(() => attack(state, from, id));
     }
     if (t.friends.some((s) => s.id === id)) return attempt(() => mergeStacks(state, selectedId, id));
     const canUse = eligibleStacks(state).some((s) => s.id === id);
@@ -414,12 +401,6 @@ setEl.addEventListener('click', (event) => {
     setUids = [];
     draw();
   }
-});
-
-bonusEl.addEventListener('click', (event) => {
-  const button = event.target.closest('[data-bonus]');
-  if (button) bonusChoice = Number(button.dataset.bonus);
-  draw();
 });
 
 modesEl.addEventListener('click', (event) => {

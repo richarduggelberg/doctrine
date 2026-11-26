@@ -58,7 +58,7 @@ export function orderInfo(state, owner, cards) {
   if (Array.isArray(def.points)) {
     values.points = tiers.reduce((sum, t) => sum + at(def.points, t), cards.length - 1);
   }
-  for (const field of ['extraCost', 'manCost', 'railHexes', 'relief']) {
+  for (const field of ['attackCost', 'manCost', 'railHexes', 'relief']) {
     if (fx[field] !== undefined) values[field] = fx[field];
   }
   if (values.points !== undefined) values.points += fx.bonusPoints ?? 0;
@@ -404,12 +404,12 @@ function directTargets(state, stack) {
   return adjacentStacks(state, stack, false);
 }
 
-// Can this stack be the subject of an order of the given kind? An attack order is judged by `ctx.room`, the
-// points left to grind with (negative when even the order's attack fee cannot be paid), and its face ability.
+// Can this stack be the subject of an order of the given kind? An attack order is judged by `ctx.payable` (the
+// points left cover the attack fee) and its face ability.
 function eligible(state, kind, stack, ctx) {
   if (isCutOff(state, stack)) return false;
   switch (kind) {
-    case 'attack': return attackOptions(state, stack, ctx.room, ctx.fx).length > 0;
+    case 'attack': return ctx.payable && attackOptions(state, stack, ctx.fx).length > 0;
     case 'defend':
     case 'logistics':
     case 'homefront': return true;
@@ -426,7 +426,7 @@ function playIssue(state, cards) {
   if (cards.some((c) => c.suit !== cards[0].suit)) return 'A set needs cards of the same suit';
   const { def, values, fx } = orderInfo(state, state.current, cards);
   const own = state.stacks.filter((s) => s.owner === state.current);
-  if (!own.some((s) => eligible(state, def.kind, s, { room: values.points ?? 0, fx }))) return 'No stack can use this order';
+  if (!own.some((s) => eligible(state, def.kind, s, { payable: (values.points ?? 0) >= (values.attackCost ?? 0), fx }))) return 'No stack can use this order';
   return null;
 }
 
@@ -474,7 +474,7 @@ function openOrder(next, spent, info, suit, label) {
     name: face ? face.name : def.name,
     kind: def.kind,
     points: values.points ?? 0,
-    extraCost: values.extraCost ?? 0,
+    attackCost: values.attackCost ?? 0,
     manCost: values.manCost ?? 2,
     values,
     fx,
@@ -525,10 +525,9 @@ function finishActive(next) {
 function autoFinish(next) {
   const a = next.active;
   if (!a || a.kind !== 'attack' || next.pending || next.over) return;
-  const room = a.points - attackFee(a);
   const live = next.stacks.some(
     (s) => s.owner === next.current && !isCutOff(next, s)
-      && (attackOptions(next, s, room, a.fx).length > 0 || shellTargets(next, s.id).length > 0),
+      && (canPayAttack(a) && attackOptions(next, s, a.fx).length > 0 || shellTargets(next, s.id).length > 0),
   );
   if (!live) finishActive(next);
 }
@@ -599,7 +598,7 @@ export function eligibleStacks(state) {
     if (!poolReady(a) || !TARGETED.has(a.mode)) return [];
     return mine.filter((s) => poolOptions(state, a.mode, s).length > 0);
   }
-  return mine.filter((s) => !a.used.includes(s.id) && eligible(state, a.kind, s, { room: a.points - attackFee(a), fx: a.fx }));
+  return mine.filter((s) => !a.used.includes(s.id) && eligible(state, a.kind, s, { payable: canPayAttack(a), fx: a.fx }));
 }
 
 export function isDirectOrder(state) {
@@ -698,41 +697,32 @@ export function assaultInfo(state, attacker, defender, fx = {}) {
   };
 }
 
-// Can `stack` attack `target` while grinding with `grind` points? A winning assault costs the attacker the ground's
-// men; any other attack must grind, which costs both sides `grind` men and moves nobody. Nobody pays their last man.
-function attackOk(state, stack, target, grind, fx) {
+// Can `stack` attack `target`? A winning assault costs the attacker the ground's men. Any other attack is a grind:
+// both sides lose 1 man and nobody moves. Nobody pays their last man, and a grind cannot take the defender below
+// SHELL_FLOOR men: a thinner stack can only be removed by an assault.
+function attackOk(state, stack, target, fx) {
   const info = assaultInfo(state, stack, target, fx);
-  if (!info.wins && grind < 1) return false;
-  return stack.men > (info.wins ? info.cost : grind);
+  if (info.wins) return stack.men > info.cost;
+  return target.men - 1 >= SHELL_FLOOR && stack.men > 1;
 }
 
-// Enemy stacks a stack could attack with `room` points to grind with (negative: the order cannot pay for another
-// attack at all). A stack that has acted this turn cannot attack.
-function attackOptions(state, stack, room, fx, grind = null) {
-  if (room < 0 || !canAct(stack) || stack.men < MIN_ATTACKER_MEN) return [];
-  return directTargets(state, stack).filter((t) =>
-    grind === null ? attackOk(state, stack, t, 0, fx) || (room >= 1 && attackOk(state, stack, t, 1, fx)) : room >= grind && attackOk(state, stack, t, grind, fx));
+// Enemy stacks a stack could attack. A stack that has acted this turn cannot attack.
+function attackOptions(state, stack, fx) {
+  if (!canAct(stack) || stack.men < MIN_ATTACKER_MEN) return [];
+  return directTargets(state, stack).filter((t) => attackOk(state, stack, t, fx));
 }
 
-// Offensive points are a pool: the first attack is free, every further attack costs `extraCost` points, and
-// each point left can grind (or shell).
-function attackFee(a) {
-  return a.used.length ? a.extraCost : 0;
+// Every attack, assault or grind, costs `attackCost` points (none with Combined arms); the rest of the points can shell.
+function canPayAttack(a) {
+  return a.points >= a.attackCost;
 }
 
-// Enemy stacks the given stack may attack from where it stands, grinding with `grind` points.
-export function legalAttacks(state, id, grind = 0) {
+// Enemy stacks the given stack may attack from where it stands.
+export function legalAttacks(state, id) {
   const stack = getStack(state, id);
   const a = activeFor(state, 'attack', stack);
-  if (!a || a.used.includes(id) || !Number.isInteger(grind) || grind < 0) return [];
-  return attackOptions(state, stack, a.points - attackFee(a), a.fx, grind);
-}
-
-// The most points the next attack can grind with.
-export function maxGrind(state) {
-  const a = state.active;
-  if (!a || a.kind !== 'attack') return 0;
-  return Math.max(0, a.points - attackFee(a));
+  if (!a || a.used.includes(id) || !canPayAttack(a)) return [];
+  return attackOptions(state, stack, a.fx);
 }
 
 function loseMen(state, stack, count) {
@@ -795,27 +785,26 @@ export function shell(state, shooterId, targetId) {
   return next;
 }
 
-// An attack, with `grind` points of attrition on top. An assault with strictly more strength wins: the attacker
-// pays the ground's men and the defender (who loses `grind` men) is driven out, or stands and loses HOLD_LOSS if
-// it has nowhere to go. An attacker without the upper hand must grind: both sides lose `grind` men and nobody moves.
-export function attack(state, attackerId, defenderId, grind = 0) {
-  if (!Number.isInteger(grind) || grind < 0) throw new Error(`Grind ${grind} is not valid`);
-  if (!legalAttacks(state, attackerId, grind).some((t) => t.id === defenderId)) {
-    throw new Error(`Illegal attack ${attackerId} -> ${defenderId} (grind ${grind})`);
+// An attack. An assault with strictly more strength wins: the attacker pays the ground's men and the defender is
+// driven out, or stands and loses HOLD_LOSS if it has nowhere to go. An attacker without the upper hand grinds:
+// both sides lose 1 man and nobody moves.
+export function attack(state, attackerId, defenderId) {
+  if (!legalAttacks(state, attackerId).some((t) => t.id === defenderId)) {
+    throw new Error(`Illegal attack ${attackerId} -> ${defenderId}`);
   }
   const next = structuredClone(state);
   const attacker = getStack(next, attackerId);
   const defender = getStack(next, defenderId);
   const a = next.active;
   const info = assaultInfo(next, attacker, defender, a.fx);
-  a.points -= grind + attackFee(a);
+  a.points -= a.attackCost;
   a.acted = true;
   a.used.push(attackerId);
   attacker.fought = true;
 
-  const breakthrough = info.wins && a.fx.breakthrough;
-  const attackerLoss = loseMen(next, attacker, info.wins ? info.cost : grind);
-  const defenderLoss = loseMen(next, defender, grind + (breakthrough ? 1 : 0));
+  const breakthrough = info.wins && a.fx.breakthrough && defender.men > SHELL_FLOOR;
+  const attackerLoss = loseMen(next, attacker, info.wins ? info.cost : 1);
+  const defenderLoss = loseMen(next, defender, info.wins ? (breakthrough ? 1 : 0) : 1);
   const battle = {
     attackerId,
     defenderId,
@@ -827,7 +816,7 @@ export function attack(state, attackerId, defenderId, grind = 0) {
   };
   const what = info.wins ? 'assaults' : 'grinds down';
   next.log.push(
-    `${attackerId} (${info.attackStrength}) ${what} ${defenderId} (${info.defenseStrength})${grind ? `, grinding ${grind}` : ''}: ` +
+    `${attackerId} (${info.attackStrength}) ${what} ${defenderId} (${info.defenseStrength}): ` +
       `${attackerId} loses ${attackerLoss}, ${defenderId} loses ${defenderLoss}.`,
   );
   if (info.wins && defender.men > 0) {

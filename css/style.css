@@ -101,9 +101,9 @@ aside h2:first-child { margin-top: 0; }
 .terrain-chip.f-fortress, .terrain-chip.f-fortified { fill: #686868; }
 .trench-chip { fill: #434343; stroke: #000; stroke-width: 1; }
 .pile { pointer-events: none; }
-#bonus button.on, #modes button.on { background: #d4af37; color: #000; }
-#bonus[hidden], #modes[hidden] { display: none; }
-#bonus, #modes { margin: .4rem 0; font-size: .9rem; }
+#modes button.on { background: #d4af37; color: #000; }
+#modes[hidden] { display: none; }
+#modes { margin: .4rem 0; font-size: .9rem; }
 
 .capital { font-size: 24px; pointer-events: none; fill: #ffd84a; stroke: #000; stroke-width: .8; }
 

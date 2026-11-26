@@ -29,15 +29,15 @@
     "aggressive": {
       "name": "Offensive",
       "kind": "attack",
-      "points": [0, 2, 3, 4, 5, 6],
-      "extraCost": 1,
+      "points": [1, 3, 4, 5, 6, 7],
+      "attackCost": 1,
       "manCost": 2,
-      "text": "Each stack gets one action a turn: walk, shell, assault or grind (merge and split count too). An assault needs more strength (men + gear) than the defender's men + gear + terrain + trench chips + support, and costs the attacker men equal to the ground's terrain and trench chips (at least 1). The beaten stack retreats and the attacker advances; a defender with nowhere to go stands and loses 2 men. A failed or tied assault is not allowed: {points} points grind instead (each point costs both sides 1 man, nobody moves), or add to an assault to hurt the defender. The first attack is free, each further one costs {extraCost} point. A shooter next to its target can shell it: 1 point strips a trench chip, down to 1 chip; then {manCost} points take 1 man, never below 2 men; no loss to you.",
+      "text": "Each stack gets one action a turn: walk, shell, assault or grind (merge and split count too). An assault needs more strength (men + gear) than the defender's men + gear + terrain + trench chips + support, and costs the attacker men equal to the ground's terrain and trench chips (at least 1). The beaten stack retreats and the attacker advances; a defender with nowhere to go stands and loses 2 men. A failed or tied assault is not allowed: grind instead (both sides lose 1 man, nobody moves; never below 2 men for the defender). Every attack, assault or grind, costs {attackCost} point. A shooter next to its target can shell it: 1 point strips a trench chip, down to 1 chip; then {manCost} points take 1 man, never below 2 men; no loss to you.",
       "faces": {
         "J": { "name": "Surprise", "fx": { "ignoreTrenches": true }, "text": "Trench chips do not count for the defender in assaults, in strength or in cost, and each point of shelling strips 2 chips." },
-        "Q": { "name": "Combined arms", "fx": { "extraCost": 0, "manCost": 1 }, "text": "Extra attacks are free and shelled men cost only 1 point." },
+        "Q": { "name": "Combined arms", "fx": { "attackCost": 0, "manCost": 1 }, "text": "Attacks cost no points and shelled men cost only 1 point." },
         "K": { "name": "No quarter", "fx": { "noRetreat": true }, "text": "A beaten defender cannot retreat: it stands and loses 2 men." },
-        "A": { "name": "Breakthrough", "fx": { "breakthrough": true }, "text": "A beaten defender loses 1 more man." }
+        "A": { "name": "Breakthrough", "fx": { "breakthrough": true }, "text": "A beaten defender loses 1 more man (never below 2 men)." }
       }
     },
     "defensive": {

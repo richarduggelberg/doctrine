@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import {
   applyPool, applyToStack, assaultInfo, attack, cardIssue, chooseMode, createGame, discardCard, eligibleStacks,
   endOrder, endTurn, fortification, getStack, improvise, improviseIssue, isFace, legalAttacks, legalMerges, legalMoves,
-  maxGrind, mergeStacks, moveStack, setIssue, placeRecruit, playCard, recruitSites, resolveRetreat, retreatOptions, shell,
+  mergeStacks, moveStack, setIssue, placeRecruit, playCard, recruitSites, resolveRetreat, retreatOptions, shell,
   shellTargets, SHELL_FLOOR, SHELL_TRENCH_FLOOR,
 } from '../js/engine.js';
 import { distance, key } from '../js/hex.js';
@@ -52,7 +52,7 @@ function attackStep(state) {
   const stacks = eligibleStacks(state);
   let win = null;
   for (const stack of stacks) {
-    for (const target of legalAttacks(state, stack.id, 0)) {
+    for (const target of legalAttacks(state, stack.id)) {
       const info = assaultInfo(state, stack, target, a.fx);
       if (!info.wins) continue;
       const score = -info.cost * 10 + target.men - info.attackStrength + info.defenseStrength;
@@ -60,31 +60,30 @@ function attackStep(state) {
     }
   }
   if (win) {
-    const grind = Math.min(maxGrind(state), 1);
-    const next = attack(state, win.stack.id, win.target.id, grind);
+    const next = attack(state, win.stack.id, win.target.id);
     return next.pending ? decide(next) : next;
   }
   if (process.env.SHELL !== '0') {
     let plan = null;
     for (const stack of stacks) {
-      for (const target of legalAttacks(state, stack.id, 1)) {
+      for (const target of legalAttacks(state, stack.id)) {
         const info = assaultInfo(state, stack, target, a.fx);
         const chips = Math.max(0, (state.defense[key(target.col, target.row)] ?? 0) - SHELL_TRENCH_FLOOR);
         const men = Math.max(0, target.men - SHELL_FLOOR);
         const need = info.defenseStrength - info.attackStrength + 1;
         const cost = Math.min(need, chips) + Math.max(0, need - chips) * a.manCost;
-        if (need > chips + men || cost > a.points || stack.men <= 1) continue;
+        if (need > chips + men || cost + a.attackCost > a.points || stack.men <= 1) continue;
         const shooter = ownAdjacent(state, target).find((s) => s.id !== stack.id && shellTargets(state, s.id).some((t) => t.id === target.id));
         if (shooter && (!plan || cost < plan.cost)) plan = { shooter, target, cost };
       }
     }
     if (plan) return shell(state, plan.shooter.id, plan.target.id);
   }
-  // Grind the enemy that is not stronger in men, with a single point.
-  if (maxGrind(state) >= 1) {
+  // Grind the enemy that is not stronger in men.
+  if (a.points >= a.attackCost) {
     for (const stack of stacks) {
-      const target = legalAttacks(state, stack.id, 1).filter((t) => t.men <= stack.men).sort((x, y) => y.men - x.men)[0];
-      if (target && stack.men >= 3) return attack(state, stack.id, target.id, 1);
+      const target = legalAttacks(state, stack.id).filter((t) => t.men <= stack.men).sort((x, y) => y.men - x.men)[0];
+      if (target && stack.men >= 3) return attack(state, stack.id, target.id);
     }
   }
   return null;
