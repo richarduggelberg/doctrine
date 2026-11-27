@@ -13,8 +13,10 @@ export const TERRAIN_BONUS = {
 export const MIN_ATTACKER_MEN = 2;
 // Artillery cannot finish a stack off: a stack of this many men or fewer is beyond its reach.
 export const SHELL_FLOOR = 2;
-// A beaten defender with nowhere to retreat (pocketed, or "No quarter") stands and loses this many men.
-export const HOLD_LOSS = 2;
+// An assault always costs the attacker this many men (and it must keep at least one), whatever the ground.
+export const ASSAULT_COST = 2;
+// A grind strips a trench chip, or with none left takes a man, but never below this many men.
+export const GRIND_FLOOR = 1;
 
 // Pool orders hold points that are spent one menu entry at a time (see `menu` in cards.json).
 const POOLS = new Set(['defend', 'logistics', 'homefront']);
@@ -333,10 +335,10 @@ function emptyNeighbors(state, stack) {
 
 // Zone of control: every hex next to a stack. A hex is in the enemy zone if an enemy stack touches it, unless that
 // stack is itself cut off (surrounded or out of supply): a cut-off stack exerts no zone.
-export function inEnemyZoc(state, owner, col, row) {
+export function inEnemyZoc(state, owner, col, row, ignoreId = null) {
   return neighbors(col, row).some((n) => {
     const s = stackAt(state, n.col, n.row);
-    return s && s.owner !== owner && s.men > 0 && !isCutOff(state, s);
+    return s && s.id !== ignoreId && s.owner !== owner && s.men > 0 && !isCutOff(state, s);
   });
 }
 
@@ -353,11 +355,13 @@ function inRawZoc(state, owner, col, row) {
 // holds (a home town the enemy has not taken, or an enemy town it has captured) - that crosses no enemy zone and no
 // enemy stack. Its own hex is exempt (front-line stacks always sit in a zone) and so is the hex of every adjacent
 // friendly stack, so supply can run along a line of touching stacks. The capital hex itself is exempt too; a town
-// depot must lie outside the enemy zones. A stack with no such path is cut off (surrounded or too far from home):
-// it can do nothing and bleeds each turn.
+// depot must lie outside the enemy zones (a friendly stack standing on it does not matter, and a stack standing on a
+// depot of its own, outside the enemy zones, is supplied by it). A stack with no such path is cut off (surrounded or
+// too far from home): it can do nothing and bleeds each turn.
 export function isCutOff(state, stack) {
   const cap = state.capitals[stack.owner];
   const depots = new Set(state.towns.filter((t) => t.holder === stack.owner).map((t) => key(t.col, t.row)));
+  if (depots.has(key(stack.col, stack.row)) && !inRawZoc(state, stack.owner, stack.col, stack.row)) return false;
   const dist = new Map([[key(stack.col, stack.row), 0]]);
   const queue = [stack];
   while (queue.length) {
@@ -372,7 +376,7 @@ export function isCutOff(state, stack) {
       if (other && other.owner !== stack.owner) continue;
       if (n.col === cap.col && n.row === cap.row) return false;
       const free = !inRawZoc(state, stack.owner, n.col, n.row);
-      if (!other && free && depots.has(k)) return false;
+      if (free && depots.has(k)) return false;
       if (other || free) queue.push(n);
     }
   }
@@ -683,8 +687,8 @@ export function moveStack(state, id, col, row) {
 }
 
 // An assault compares chips only: the attacker's men and gear against the defender's men, gear, terrain, trench
-// chips and adjacent support (Surprise ignores the trench chips, in strength and in cost). It succeeds only with
-// strictly more, and then the attacker pays in blood for the ground: the terrain and trench chips (at least 1 man).
+// chips and adjacent support (Surprise ignores the trench chips). It succeeds only with strictly more, and then
+// the attacker pays ASSAULT_COST men for the ground, whatever the terrain.
 export function assaultInfo(state, attacker, defender, fx = {}) {
   const trenches = fx.ignoreTrenches ? state.defense[key(defender.col, defender.row)] ?? 0 : 0;
   const attackStrength = strength(state, attacker, false);
@@ -693,17 +697,19 @@ export function assaultInfo(state, attacker, defender, fx = {}) {
     attackStrength,
     defenseStrength,
     wins: attackStrength > defenseStrength,
-    cost: Math.max(1, fortification(state, defender.col, defender.row) - trenches),
+    cost: ASSAULT_COST,
   };
 }
 
-// Can `stack` attack `target`? A winning assault costs the attacker the ground's men. Any other attack is a grind:
-// both sides lose 1 man and nobody moves. Nobody pays their last man, and a grind cannot take the defender below
-// SHELL_FLOOR men: a thinner stack can only be removed by an assault.
+// Can `stack` attack `target`? A winning assault costs the attacker ASSAULT_COST men and it must keep one. Any other
+// attack is a grind: the attacker loses 1 man and the target hex loses a trench chip, or, with no chips left, the
+// defender loses 1 man. Nobody pays their last man, and a grind cannot take the defender below GRIND_FLOOR men: a
+// lone man can only be removed by an assault.
 function attackOk(state, stack, target, fx) {
   const info = assaultInfo(state, stack, target, fx);
   if (info.wins) return stack.men > info.cost;
-  return target.men - 1 >= SHELL_FLOOR && stack.men > 1;
+  const chips = state.defense[key(target.col, target.row)] ?? 0;
+  return (chips > 0 || target.men - 1 >= GRIND_FLOOR) && stack.men > 1;
 }
 
 // Enemy stacks a stack could attack. A stack that has acted this turn cannot attack.
@@ -785,9 +791,9 @@ export function shell(state, shooterId, targetId) {
   return next;
 }
 
-// An attack. An assault with strictly more strength wins: the attacker pays the ground's men and the defender is
-// driven out, or stands and loses HOLD_LOSS if it has nowhere to go. An attacker without the upper hand grinds:
-// both sides lose 1 man and nobody moves.
+// An attack. An assault with strictly more strength wins: the attacker pays ASSAULT_COST men and the defender is
+// driven out, or destroyed if it has nowhere to go. An attacker without the upper hand grinds: it loses 1 man and
+// nobody moves; the defender's hex loses a trench chip, or once it has none the defender loses 1 man.
 export function attack(state, attackerId, defenderId) {
   if (!legalAttacks(state, attackerId).some((t) => t.id === defenderId)) {
     throw new Error(`Illegal attack ${attackerId} -> ${defenderId}`);
@@ -803,8 +809,11 @@ export function attack(state, attackerId, defenderId) {
   attacker.fought = true;
 
   const breakthrough = info.wins && a.fx.breakthrough && defender.men > SHELL_FLOOR;
+  const hex = key(defender.col, defender.row);
+  const stripped = !info.wins && (next.defense[hex] ?? 0) > 0;
+  if (stripped) next.defense[hex] -= 1;
   const attackerLoss = loseMen(next, attacker, info.wins ? info.cost : 1);
-  const defenderLoss = loseMen(next, defender, info.wins ? (breakthrough ? 1 : 0) : 1);
+  const defenderLoss = loseMen(next, defender, info.wins ? (breakthrough ? 1 : 0) : stripped ? 0 : 1);
   const battle = {
     attackerId,
     defenderId,
@@ -817,33 +826,33 @@ export function attack(state, attackerId, defenderId) {
   const what = info.wins ? 'assaults' : 'grinds down';
   next.log.push(
     `${attackerId} (${info.attackStrength}) ${what} ${defenderId} (${info.defenseStrength}): ` +
-      `${attackerId} loses ${attackerLoss}, ${defenderId} loses ${defenderLoss}.`,
+      `${attackerId} loses ${attackerLoss}, ${defenderId} loses ${defenderLoss}${stripped ? ', -1 trench chip' : ''}.`,
   );
   if (info.wins && defender.men > 0) {
-    if (retreatSites(next, defender, battle.noRetreat).length) {
+    if (retreatSites(next, defender, attackerId, battle.noRetreat).length) {
       next.pending = battle;
       return next;
     }
-    const lost = loseMen(next, defender, HOLD_LOSS);
-    next.log.push(`${defenderId} is pocketed, stands and loses ${lost} more man${defender.men === 0 ? ' (destroyed)' : ''}`);
+    const lost = loseMen(next, defender, defender.men);
+    next.log.push(`${defenderId} is pocketed and destroyed (${lost} men lost)`);
   }
   finishBattle(next, battle);
   return next;
 }
 
-// A retreat costs 1 gear, or 1 man if the stack has none, so it needs a chip to spare
-// (free under elastic defence). It must end outside every enemy zone.
-// A cut-off stack cannot retreat either, and neither can the victim of "no quarter": they are pocketed.
-function retreatSites(state, loser, noRetreat) {
-  if (noRetreat || isCutOff(state, loser)) return [];
-  if (!state.elastic[loser.owner] && loser.gear === 0 && loser.men < 2) return [];
-  return freeNeighbors(state, loser);
+// A beaten stack can retreat to any adjacent hex that holds no stack and lies outside the enemy zones (the
+// assailant's own zone is ignored: it advances into the hex the loser leaves, so it would block every exit).
+// It costs 1 gear, or 1 man if the stack has no gear but more than one man; a lone man retreats for free, and so
+// does anyone under elastic defence. No retreat is possible after "no quarter".
+function retreatSites(state, loser, attackerId, noRetreat) {
+  if (noRetreat) return [];
+  return emptyNeighbors(state, loser).filter((n) => !inEnemyZoc(state, loser.owner, n.col, n.row, attackerId));
 }
 
 export function retreatOptions(state) {
   const pending = state.pending;
   if (!pending) return [];
-  return retreatSites(state, getStack(state, pending.loserId), pending.noRetreat);
+  return retreatSites(state, getStack(state, pending.loserId), pending.attackerId, pending.noRetreat);
 }
 
 function finishBattle(next, battle) {
@@ -882,8 +891,9 @@ export function resolveRetreat(state, col, row) {
   }
   const next = structuredClone(state);
   const loser = getStack(next, pending.loserId);
-  const cost = next.elastic[loser.owner] ? 'nothing (elastic defence)' : loser.gear > 0 ? '1 gear' : '1 man';
-  if (!next.elastic[loser.owner]) {
+  const free = next.elastic[loser.owner] || (loser.gear === 0 && loser.men < 2);
+  const cost = free ? 'nothing' : loser.gear > 0 ? '1 gear' : '1 man';
+  if (!free) {
     if (loser.gear > 0) loser.gear -= 1;
     else loseMen(next, loser, 1);
   }

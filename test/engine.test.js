@@ -168,18 +168,21 @@ test('same-suit cards played as a set add their points, plus 1 per card beyond t
 });
 
 test('face cards add abilities: Offensive Surprise, No quarter and Breakthrough', () => {
-  // Surprise: trench chips do not count for the defender, in strength or in cost.
+  // Surprise: trench chips do not count for the defender's strength.
   const dug = duel(5, 3);
   dug.defense['2,2'] = 2;
-  const tie = attack(play(dug, 'S', 6), 'A1', 'B1'); // 5 against 3 + 2 trenches is a tie: a grind\r\n  assert.equal(tie.pending, null);\r\n  assert.deepEqual(tie.stacks.map((s) => s.men), [4, 2]);
+  const tie = attack(play(dug, 'S', 6), 'A1', 'B1'); // 5 against 3 + 2 trenches is a tie: a grind
+  assert.equal(tie.pending, null);
+  assert.deepEqual(tie.stacks.map((s) => s.men), [4, 3], 'the chip goes first: the defender keeps its men');
+  assert.equal(tie.defense['2,2'], 1, 'a grind strips a trench chip');
   const surprised = attack(play(dug, 'S', 11), 'A1', 'B1');
   assert.equal(surprised.pending.winnerId, 'A1');
-  assert.equal(surprised.stacks[0].men, 4, 'the trenches cost the attacker nothing: 1 man');
-  // No quarter: a beaten defender cannot retreat, so it stands and loses 2 men.
-  assert.ok(retreatOptions(attack(play(duel(5, 3), 'S', 5), 'A1', 'B1')).length > 0);
-  const noQuarter = attack(play(duel(5, 3), 'S', 13), 'A1', 'B1');
+  assert.equal(surprised.stacks[0].men, 3, 'an assault always costs 2 men');
+  // No quarter: a beaten defender cannot retreat, so it is destroyed.
+  assert.ok(retreatOptions(attack(play(duelWithReserve(5, 3), 'S', 5), 'A1', 'B1')).length > 0);
+  const noQuarter = attack(play(duelWithReserve(5, 3), 'S', 13), 'A1', 'B1');
   assert.equal(noQuarter.pending, null);
-  assert.equal(noQuarter.stacks.find((s) => s.id === 'B1').men, 1);
+  assert.equal(noQuarter.stacks.find((s) => s.id === 'B1'), undefined);
   // Breakthrough: the beaten defender loses a man more.
   const advance = (card) => {
     const won = attack(play(duelWithReserve(6, 4), 'S', card), 'A1', 'B1');
@@ -394,32 +397,34 @@ test('a failed assault is not allowed: the attacker grinds, both sides lose the 
 test('an assault costs the attacker men and drives the defender out; the attacker gains gear only when it advances', () => {
   let state = fight(5, 3);
   assert.equal(state.pending.winnerId, 'A1');
-  assert.equal(state.stacks[0].men, 4); // paid 1 for the ground
+  assert.equal(state.stacks[0].men, 3); // paid 2 for the ground, whatever it is
   assert.equal(state.stacks[0].gear, 0, 'no gear until the hex is taken');
   assert.equal(state.stacks[1].men, 3, 'the defender loses nothing but the ground');
   const options = retreatOptions(state);
   assert.ok(options.length > 0);
-  for (const o of options) assert.ok(!inEnemyZoc(state, 'B', o.col, o.row), 'a retreat must leave every enemy zone');
+  for (const o of options) assert.ok(!inEnemyZoc(state, 'B', o.col, o.row, 'A1'), 'a retreat must leave every other enemy zone');
   state = resolveRetreat(state, options[0].col, options[0].row);
   assert.equal(state.stacks.find((s) => s.id === 'B1').men, 2); // no gear: the retreat costs a man
   assert.deepEqual([state.stacks[0].col, state.stacks[0].row], [2, 2]);
   assert.equal(state.stacks[0].gear, 1);
   assert.equal(state.pending, null);
-  assert.equal(state.casualties.A + state.casualties.B, 2);
+  assert.equal(state.casualties.A + state.casualties.B, 3);
 });
 
 test('experience never exceeds men: it is capped when gained and shed when men are lost', () => {
-  // Attacker with 1 man left after attrition: 2 men, attrition costs 1 -> gear capped at 1 man.
-  const won = fight(2, 1);
+  // Attacker left with 1 man after paying 2: the experience it gains is capped at that man.
+  let won = fight(3, 1);
   assert.equal(won.stacks[0].men, 1);
-  assert.ok(won.stacks[0].gear <= won.stacks[0].men);
+  const [exit] = retreatOptions(won);
+  won = resolveRetreat(won, exit.col, exit.row);
+  assert.deepEqual([won.stacks[0].men, won.stacks[0].gear], [1, 1]);
 
   // Losing men sheds the experience that no longer fits.
   const geared = bare(duel(4, 3));
   geared.stacks[0].gear = 4;
   const after = attack(geared, 'A1', 'B1').stacks.find((s) => s.id === 'A1');
-  assert.equal(after.men, 3);
-  assert.equal(after.gear, 3);
+  assert.equal(after.men, 2);
+  assert.equal(after.gear, 2);
 
   // Rally cannot lift gear above men.
   const full = duel(2, 2);
@@ -438,16 +443,61 @@ test('a retreat costs gear before men', () => {
   assert.deepEqual([retreated.men, retreated.gear], [3, 0]);
 });
 
-test('a pocketed defender (no retreat) stands and loses 2 men and keeps the hex; destroyed stacks vanish', () => {
+test('a defender with nowhere to retreat is destroyed; a lone man retreats for free; destroyed stacks vanish', () => {
   const held = attack(play(duelWithReserve(5, 3), 'S', 13), 'A1', 'B1'); // No quarter pockets it
   assert.equal(held.pending, null);
-  assert.equal(held.stacks.find((s) => s.id === 'B1').men, 1);
-  assert.deepEqual([held.stacks[0].col, held.stacks[0].row], [1, 2]);
-  assert.equal(held.stacks[0].gear, 0);
-  const destroyed = fight(5, 1); // a lone man has no chip to spare for a retreat
-  assert.equal(destroyed.stacks.length, 1);
-  assert.deepEqual([destroyed.stacks[0].col, destroyed.stacks[0].row], [2, 2]);
-  assert.equal(destroyed.pending, null);
+  assert.equal(held.stacks.find((s) => s.id === 'B1'), undefined);
+  assert.deepEqual([held.stacks[0].col, held.stacks[0].row], [2, 2], 'the attacker takes the hex');
+  assert.equal(held.stacks[0].gear, 1);
+  assert.equal(held.casualties.B, 3);
+
+  // Every exit held by a stack: destroyed too.
+  const boxed = bare(duelWithReserve(9, 3));
+  for (const n of neighbors(2, 2)) {
+    if ((n.col === 1 && n.row === 2) || !inBounds(boxed, n.col, n.row)) continue;
+    boxed.stacks.push({ id: `F${n.col}${n.row}`, owner: 'A', col: n.col, row: n.row, men: 1, gear: 0 });
+  }
+  const crushed = attack(boxed, 'A1', 'B1');
+  assert.equal(crushed.pending, null);
+  assert.equal(crushed.stacks.find((s) => s.id === 'B1'), undefined);
+
+  // A lone man with no gear retreats at no cost.
+  const lone = attack(bare(duelWithReserve(5, 1)), 'A1', 'B1');
+  const [exit] = retreatOptions(lone);
+  assert.equal(lone.stacks.find((s) => s.id === 'B1').men, 1);
+  assert.equal(resolveRetreat(lone, exit.col, exit.row).stacks.find((s) => s.id === 'B1').men, 1);
+});
+
+test('a grind strips trench chips first, then takes men, down to 1 man', () => {
+  const dug = duel(4, 4);
+  dug.defense['2,2'] = 2;
+  let s = attack(play(dug, 'S', 6), 'A1', 'B1');
+  assert.deepEqual([s.stacks[0].men, s.stacks[1].men, s.defense['2,2']], [3, 4, 1]);
+  s.stacks[0].fought = false;
+  s.active = structuredClone(play(dug, 'S', 6).active);
+  s = attack(s, 'A1', 'B1');
+  assert.deepEqual([s.stacks[0].men, s.stacks[1].men, s.defense['2,2']], [2, 4, 0]);
+  s.stacks[0].fought = false;
+  s.active = structuredClone(play(dug, 'S', 6).active);
+  s = attack(s, 'A1', 'B1');
+  assert.deepEqual([s.stacks[0].men, s.stacks[1].men], [1, 3], 'with no chips left a man goes');
+  const lone = duel(4, 1);
+  lone.defense['2,2'] = 1;
+  assert.equal(legalAttacks(play(lone, 'S', 6), 'A1').length, 1, 'a lone man can still lose its chip');
+});
+
+test('a retreat ignores the zone of the assailant, but not of other enemy stacks, nor friendly or enemy stacks', () => {
+  const state = bare(duelWithReserve(9, 3));
+  const exits = (s) => retreatOptions(attack(s, 'A1', 'B1')).map((h) => `${h.col},${h.row}`);
+  const open = exits(state);
+  assert.ok(open.length >= 3, 'with only the assailant around, every free neighbour is open');
+  const blocker = structuredClone(state);
+  blocker.stacks.push({ id: 'B8', owner: 'B', col: 3, row: 2, men: 1, gear: 0 });
+  assert.ok(!exits(blocker).includes('3,2'), 'a stack on the hex blocks it');
+  const guarded = structuredClone(state);
+  guarded.stacks.push({ id: 'A8', owner: 'A', col: 4, row: 2, men: 3, gear: 0 });
+  assert.ok(!exits(guarded).includes('3,2'), 'another enemy stack zones the hex off');
+  assert.ok(exits(guarded).length < open.length);
 });
 
 test('other actions are blocked while a battle awaits a decision', () => {
@@ -472,11 +522,12 @@ test('a failed attack grinds 1 for 1 and nobody moves; an assault costs only the
   const ground = attack(play(duel(4, 4), 'S', 6), 'A1', 'B1'); // a tie
   assert.deepEqual(ground.stacks.map((s) => s.men), [3, 3]);
   assert.equal(ground.active, null, 'nobody is left to attack: the order ends');
-  assert.throws(() => play(duel(2, 2), 'S', 6), /No stack/, 'a defender is never ground below 2 men: it can only be assaulted');
-  assert.deepEqual(legalAttacks(play(duel(3, 2), 'S', 6), 'A1').map((s) => s.id), ['B1'], 'but a win is still an assault');
+  assert.throws(() => play(duel(2, 1), 'S', 6), /No stack/, 'a lone man cannot be ground, and 2 men cannot pay for an assault');
+  assert.deepEqual(legalAttacks(play(duel(2, 2), 'S', 6), 'A1').map((s) => s.id), ['B1'], 'but 2 men can be ground');
+  assert.deepEqual(legalAttacks(play(duel(3, 2), 'S', 6), 'A1').map((s) => s.id), ['B1'], 'and a win is an assault');
   const strong = attack(play(duelWithReserve(5, 4), 'S', 6), 'A1', 'B1');
   assert.equal(strong.pending.winnerId, 'A1');
-  assert.deepEqual([strong.stacks[0].men, strong.stacks.find((s) => s.id === 'B1').men], [4, 4], 'only the attacker pays');
+  assert.deepEqual([strong.stacks[0].men, strong.stacks.find((s) => s.id === 'B1').men], [3, 4], 'only the attacker pays');
 });
 
 test('every attack costs 1 point (none with Combined arms); one stack attacks only once', () => {
@@ -740,25 +791,23 @@ test('a broken nation only surrenders when its own turn ends, not the enemy\'s',
   assert.equal(state.over.loser, 'B');
 });
 
-test('bloodletting: the attacker pays men for terrain and trenches; the defender loses nothing but the ground, unless broken through', () => {
-  assert.equal(fight(6, 3, { '2,2': 'fortified' }).stacks[0].men, 4); // paid 2
+test('bloodletting: an assault always costs the attacker 2 men whatever the ground; the defender loses nothing but the ground, unless broken through', () => {
+  assert.equal(fight(6, 3, { '2,2': 'fortified' }).stacks[0].men, 4);
+  assert.equal(fight(6, 1).stacks[0].men, 4, 'open ground costs 2 as well');
   const dug = bare(duel(9, 3, { '2,2': 'rough' }));
   dug.defense['2,2'] = 2;
-  assert.equal(attack(dug, 'A1', 'B1').stacks[0].men, 6); // rough + 2 trenches: paid 3
+  assert.equal(attack(dug, 'A1', 'B1').stacks[0].men, 7, 'rough ground and trenches cost no more');
   assert.equal(attack(play(duel(9, 5), 'S', 6), 'A1', 'B1').stacks.find((s) => s.id === 'B1').men, 5);
   assert.equal(attack(play(duel(9, 5), 'S', 14), 'A1', 'B1').stacks.find((s) => s.id === 'B1').men, 4, 'Breakthrough costs it 1 man');
 });
 
 test('an attacker needs more men than the attack costs, so it cannot destroy itself', () => {
-  const rough = { '2,2': 'fortified' }; // an attacker pays 2 here
-  const thin = duel(2, 1, rough);
+  const thin = duel(2, 1);
   thin.stacks[0].gear = 2;
-  assert.throws(() => bare(thin), /No stack/, '4 against 3 would win, but it costs 2 men of 2');
-  const ok = duel(3, 1, rough);
-  ok.stacks[0].gear = 1;
+  assert.throws(() => bare(thin), /No stack/, '4 against 1 would win, but it costs 2 men of 2');
+  const ok = duel(3, 1);
   const won = attack(bare(ok), 'A1', 'B1');
   assert.equal(won.stacks[0].men, 1, 'it survives with its last man');
-  assert.deepEqual(legalAttacks(bare(duel(2, 1)), 'A1').map((s) => s.id), ['B1'], 'flat ground costs 1');
 });
 
 test('if both nations are wiped out at once, the one that lost more men loses', () => {
@@ -859,13 +908,13 @@ test('an empty hex keeps at most one trench chip, however the stack left it', ()
   state = resolveRetreat(state, out.col, out.row);
   assert.equal(state.defense['2,2'], 1);
   // Destroyed.
-  const wiped = bare(duelWithReserve(9, 1));
+  const wiped = play(duelWithReserve(9, 1), 'S', 13); // No quarter
   wiped.defense['2,2'] = 3;
   assert.equal(attack(wiped, 'A1', 'B1').defense['2,2'], 1);
 });
 
 test('an attacker that wins an empty hex advances into it at full strength', () => {
-  const state = attack(bare(duelWithReserve(6, 1)), 'A1', 'B1'); // B1 dies, A1 advances
+  const state = attack(play(duelWithReserve(6, 1), 'S', 13), 'A1', 'B1'); // B1 dies, A1 advances
   const attacker = state.stacks.find((s) => s.id === 'A1');
   assert.equal(attacker.col, 2);
   assert.equal(strength(state, attacker, false), attacker.men + attacker.gear);
@@ -1092,6 +1141,28 @@ test('supply must reach the capital or a held town within the supply range', () 
   assert.equal(cut(taken), true, 'a town the enemy holds is not');
 });
 
+test('a stack standing on a held town outside enemy zones is supplied by it; one in an enemy zone is not', () => {
+  const build = (col, stacks = [], places = []) => createGame(
+    { cols: 24, rows: 5, borderCol: 5, terrain: {}, places, capitals: { A: { col: 0, row: 2 }, B: { col: 23, row: 4 } },
+      stacks: [{ owner: 'A', col, row: 2, men: 3 }, ...stacks] },
+    config,
+  );
+  const town = { col: 15, row: 2, name: 'Far', size: 'small' };
+  const taken = build(15, [{ owner: 'B', col: 23, row: 0, men: 3 }], [town]);
+  taken.towns[0].holder = 'A';
+  assert.equal(isCutOff(taken, taken.stacks[0]), false, 'a captured town far from home feeds the stack on it');
+  const pressed = build(15, [{ owner: 'B', col: 16, row: 2, men: 3 }, { owner: 'B', col: 23, row: 0, men: 3 }], [town]);
+  pressed.towns[0].holder = 'A';
+  assert.equal(isCutOff(pressed, pressed.stacks[0]), true, 'with an enemy stack next to it the town no longer feeds it');
+  const bare = build(15, [{ owner: 'B', col: 23, row: 0, men: 3 }]);
+  assert.equal(isCutOff(bare, bare.stacks[0]), true, 'without a town it is too far from the capital');
+  // A friendly stack on the depot does not stop a neighbour from drawing on it.
+  const queue = build(14, [{ owner: 'B', col: 23, row: 0, men: 3 }], [town]);
+  queue.towns[0].holder = 'A';
+  queue.stacks.push({ id: 'A9', owner: 'A', col: 15, row: 2, men: 3, gear: 0 });
+  assert.equal(isCutOff(queue, queue.stacks[0]), false);
+});
+
 test('a cut-off stack exerts no zone of control', () => {
   const free = duel(3, 3);
   assert.equal(inEnemyZoc(free, 'B', 0, 2), true, 'a supplied A1 controls the hex behind it');
@@ -1159,7 +1230,7 @@ test('recruits muster as 1-man stacks in empty home towns, and unplaced ones are
 
 test('no recruits are mustered where the new stack would be surrounded', () => {
   const state = surrounded(0);
-  state.towns = [{ name: 'Trapped', col: 0, row: 3, size: 'town', home: 'A', holder: 'A' }];
+  state.towns = [{ name: 'Trapped', col: 1, row: 4, size: 'town', home: 'A', holder: 'A' }];
   assert.equal(state.recruits.A, 1);
   assert.deepEqual(recruitSites(state), []);
   state.stacks = state.stacks.filter((s) => s.owner === 'A');

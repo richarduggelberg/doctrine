@@ -35,7 +35,7 @@ const setEl = $('set-bar');
 const overPanel = $('over');
 
 const INSTRUCTIONS = {
-  attack: 'Select a highlighted stack, then click a red-dashed adjacent enemy: an assault if you have more strength (you pay men), otherwise a 1-for-1 grind. Each attack costs 1 point. Or use Shell: select a stack next to the target. Each stack acts once a turn.',
+  attack: 'Select a highlighted stack, then click a red-dashed adjacent enemy: an assault if you have more strength (you pay 2 men), otherwise a grind (you lose 1 man; the defender's trench chip goes first, then its men). Each attack costs 1 point. Or use Shell: select a stack next to the target. Each stack acts once a turn.',
   'defend:trench': 'Click a highlighted stack to add a trench chip to its hex.',
   defend: 'Choose what to spend points on.',
   'logistics:rail': 'Click a highlighted stack on home soil: it may walk further this turn, along home soil only.',
@@ -162,8 +162,8 @@ function drawInfo() {
       const info = assaultInfo(state, stack, target, state.active.fx);
       lines.push(info.wins
         ? `Assault ${target.id}: ${info.attackStrength} vs ${info.defenseStrength}. You lose ${menText(info.cost)}, ` +
-          `it must retreat.`
-        : `Grind ${target.id}: ${info.attackStrength} vs ${info.defenseStrength} is no win, so both sides lose 1 man and nobody moves.`);
+          `it must retreat (or is destroyed if it cannot).`
+        : `Grind ${target.id}: ${info.attackStrength} vs ${info.defenseStrength} is no win, so you lose 1 man and nobody moves; the hex loses a trench chip, or if it has none the defender loses 1 man.`);
     }
   }
   infoPanel.innerHTML = lines.map((line) => `<div>${line}</div>`).join('');
@@ -223,7 +223,8 @@ function drawDecision() {
   decisionPanel.hidden = !pending;
   if (!pending) return;
   const loser = getStack(state, pending.loserId);
-  decisionText.textContent = `Player ${loser.owner}: ${loser.id} is overpowered. Click a highlighted hex to retreat (lose ${loser.gear > 0 ? '1 gear' : '1 man'}).`;
+  const retreatCost = state.elastic[loser.owner] || (loser.gear === 0 && loser.men < 2) ? 'free' : `lose ${loser.gear > 0 ? '1 gear' : '1 man'}`;
+  decisionText.textContent = `Player ${loser.owner}: ${loser.id} is overpowered. Click a highlighted hex to retreat (${retreatCost}).`;
 }
 
 function drawOver() {

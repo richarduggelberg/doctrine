@@ -1085,7 +1085,7 @@ M10 - PLAYING CARDS, TIERS, LONGER WALKS (supersedes M3 deck, M9 items 2, 3, 7,
 
 23. FLAT ATTACK FEE, 1-FOR-1 GRIND, OFFENSIVE TABLE SHIFT (supersedes the
     grind and points lines of item 21)
-  - Every attack, assault or grind, costs ttackCost = 1 point (0 with
+  - Every attack, assault or grind, costs attackCost = 1 point (0 with
     Combined arms). There is no free first attack any more.
   - A win is an assault (the attacker pays the ground's men, the defender
     loses nothing but the ground, plus 1 man with Breakthrough above the
@@ -1099,3 +1099,32 @@ M10 - PLAYING CARDS, TIERS, LONGER WALKS (supersedes M3 deck, M9 items 2, 3, 7,
     Defence and Logistics start at 1 and Home Front at 2: all orders >= 1.
   - Simulation (100 games): A 35 / B 65, all ended by will to fight broken,
     ~23 rounds, casualties A 47 / B 27; assaults ~8, grinds ~13 per game.
+
+24. FLAT ASSAULT COST, GRIND STRIPS TRENCHES, DESTROYED WHEN POCKETED, OPEN
+    RETREATS, SUPPLY FIX (supersedes the cost, grind-floor and pocket lines of
+    items 21 and 23)
+  - An assault always costs the attacker ASSAULT_COST = 2 men whatever the
+    terrain or trenches (it must keep at least 1, so it needs 3 men). Terrain
+    and trenches now matter only through the strength gate. Surprise only
+    removes the trench chips from the defender's strength.
+  - A grind: the attacker loses 1 man and nobody moves. The defender's hex
+    loses 1 trench chip per grind, down to 0; only with no chips left does
+    the defender lose a man, never below GRIND_FLOOR = 1 (a lone man can only
+    be assaulted, though a lone man's chip can still be ground away). Shelling
+    keeps its floors: 1 chip and 2 men.
+  - A beaten defender with no retreat is destroyed (HOLD_LOSS is gone), and
+    the attacker takes the hex. No quarter therefore destroys the defender.
+  - Retreat: a beaten stack can always step to an adjacent empty hex outside
+    the enemy zones, ignoring the zone of the assailant itself (it advances into
+    the vacated hex, so counting it would block every exit). Only stacks
+    (either side) and other enemy zones block. Being cut off no longer prevents
+    it. The cost is 1 gear, else 1 man; a lone man without gear, or anyone under
+    Elastic defence, retreats free.
+  - Supply: a stack standing on a town its nation holds, outside the enemy
+    zones, is supplied by it (before, a stack on a captured town far from home
+    was cut off); and a friendly stack on a depot town no longer stops its
+    neighbours from drawing on it. A town in an enemy zone is still no depot.
+  - Simulation (100 games): A 88 / B 12, ~26 rounds, all by will to fight
+    broken, casualties A 36 / B 37; per game ~12 assaults, ~19 grinds, ~1.2
+    pocketed stacks. The first-move and doctrine imbalance of the earlier
+    round-robin is untouched and now swings the other way; needs rebalancing.

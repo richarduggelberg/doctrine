@@ -21,9 +21,10 @@ if (process.env.SUPPORT) [config.support.perStack, config.support.max] = process
 if (process.env.MIRROR) config.doctrine.B = structuredClone(config.doctrine.A);
 // TOWNW=small,big overrides the exhaustion a lost town costs each turn.
 if (process.env.TOWNW) [config.surrender.townWeight, config.surrender.bigTownWeight] = process.env.TOWNW.split(',').map(Number);
-// DOCB=aggressive:1,defensive:3,... overrides nation B's doctrine cards.
-if (process.env.DOCB) {
-  config.doctrine.B.cards = Object.fromEntries(process.env.DOCB.split(',').map((p) => [p.split(':')[0], Number(p.split(':')[1])]));
+// DOCA / DOCB=aggressive:1,defensive:3,... override a nation's doctrine cards.
+for (const side of ['A', 'B']) {
+  const spec = process.env[`DOC${side}`];
+  if (spec) config.doctrine[side].cards = Object.fromEntries(spec.split(',').map((p) => [p.split(':')[0], Number(p.split(':')[1])]));
 }
 const games = Number(process.argv[2] ?? 300);
 const maxTurns = Number(process.argv[3] ?? 80);
@@ -35,7 +36,7 @@ const enemyOf = (state) => state.stacks.filter((s) => s.owner !== state.current)
 const nearestEnemy = (state, hex) => Math.min(...enemyOf(state).map((e) => distance(hex, e)));
 const isFront = (state, stack) => nearestEnemy(state, stack) <= 2;
 
-// The beaten defender of a pending battle retreats toward home (a pocketed one never gets here: it stands at once).
+// The beaten defender of a pending battle retreats toward home (a pocketed one never gets here: it is destroyed at once).
 function decide(state) {
   const loser = getStack(state, state.pending.loserId);
   const home = state.capitals[loser.owner];
