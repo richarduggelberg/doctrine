@@ -35,7 +35,7 @@ const setEl = $('set-bar');
 const overPanel = $('over');
 
 const INSTRUCTIONS = {
-  attack: 'Select a highlighted stack, then click a red-dashed adjacent enemy: an assault if you have more strength (you pay 2 men), otherwise a grind (you lose 1 man; the defender's trench chip goes first, then its men). Each attack costs 1 point. Or use Shell: select a stack next to the target. Each stack acts once a turn.',
+  attack: 'Select a highlighted stack, then click a red-dashed adjacent enemy: an assault if you have more strength (you pay 2 men), otherwise a grind (you lose 1 man; a trench chip goes first, then men of the defender). Each attack costs 1 point. Or use Shell: select a stack next to the target. Each stack acts once a turn.',
   'defend:trench': 'Click a highlighted stack to add a trench chip to its hex.',
   defend: 'Choose what to spend points on.',
   'logistics:rail': 'Click a highlighted stack on home soil: it may walk further this turn, along home soil only.',
