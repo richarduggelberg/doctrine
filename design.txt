@@ -1124,6 +1124,9 @@ M10 - PLAYING CARDS, TIERS, LONGER WALKS (supersedes M3 deck, M9 items 2, 3, 7,
     zones, is supplied by it (before, a stack on a captured town far from home
     was cut off); and a friendly stack on a depot town no longer stops its
     neighbours from drawing on it. A town in an enemy zone is still no depot.
+  - Neutral towns (Belgium, Luxembourg, Netherlands) can be captured too: the
+    stack standing on one holds it, and it is a supply depot for its holder.
+    They never count as lost towns, so they cost nobody exhaustion.
   - Simulation (100 games): A 88 / B 12, ~26 rounds, all by will to fight
     broken, casualties A 36 / B 37; per game ~12 assaults, ~19 grinds, ~1.2
     pocketed stacks. The first-move and doctrine imbalance of the earlier

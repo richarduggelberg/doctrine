@@ -1163,6 +1163,24 @@ test('a stack standing on a held town outside enemy zones is supplied by it; one
   assert.equal(isCutOff(queue, queue.stacks[0]), false);
 });
 
+test('a neutral town is taken by standing on it: it supplies its holder but costs nobody exhaustion', () => {
+  const state = createGame(
+    { cols: 24, rows: 5, borderCol: 5, terrain: {}, places: [{ col: 10, row: 2, name: 'Far', size: 'small' }],
+      capitals: { A: { col: 0, row: 2 }, B: { col: 23, row: 4 } },
+      stacks: [{ owner: 'A', col: 8, row: 2, men: 3 }, { owner: 'B', col: 23, row: 0, men: 3 }] },
+    config,
+  );
+  state.towns[0].home = state.towns[0].holder = null;
+  assert.equal(isCutOff(state, state.stacks[0]), false);
+  const taken = moveStack(state, 'A1', 10, 2);
+  assert.equal(taken.towns[0].holder, 'A');
+  assert.equal(isCutOff(taken, taken.stacks[0]), false, 'the captured town feeds the stack on it');
+  const unheld = structuredClone(taken);
+  unheld.towns[0].holder = null;
+  assert.equal(isCutOff(unheld, unheld.stacks[0]), true, 'without the town it is too far from the capital');
+  assert.deepEqual(['A', 'B'].map((o) => townsLost(taken, o).length), [0, 0]);
+});
+
 test('a cut-off stack exerts no zone of control', () => {
   const free = duel(3, 3);
   assert.equal(inEnemyZoc(free, 'B', 0, 2), true, 'a supplied A1 controls the hex behind it');

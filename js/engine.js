@@ -113,14 +113,15 @@ function trimTrenches(state) {
 }
 
 // Towns: every named place on a player's own soil starts in that player's hands. A stack of the other player
-// standing on it takes it, and it stays taken until someone else's stack stands there. Neutral towns never change hands.
+// standing on it takes it, and it stays taken until someone else's stack stands there. Neutral towns (Belgium...)
+// start in nobody's hands and are taken the same way: they supply their holder but cost nobody exhaustion.
 export function updateTowns(state) {
   for (const town of state.towns) {
     const stack = stackAt(state, town.col, town.row);
-    if (!town.home || !stack || stack.owner === town.holder) continue;
+    if (!stack || stack.owner === town.holder) continue;
     town.holder = stack.owner;
     state.log.push(
-      stack.owner === town.home ? `${stack.id} retakes ${town.name}` : `${stack.id} captures ${town.name} from Player ${town.home}`,
+      stack.owner === town.home ? `${stack.id} retakes ${town.name}` : `${stack.id} captures ${town.name}${town.home ? ` from Player ${town.home}` : ''}`,
     );
   }
 }
@@ -352,7 +353,7 @@ function inRawZoc(state, owner, col, row) {
 }
 
 // Supply: a stack needs a path of at most supplyRange hexes to a supply depot - its capital or a town its nation
-// holds (a home town the enemy has not taken, or an enemy town it has captured) - that crosses no enemy zone and no
+// holds (a home town the enemy has not taken, or any other town it has captured, neutral ones included) - that crosses no enemy zone and no
 // enemy stack. Its own hex is exempt (front-line stacks always sit in a zone) and so is the hex of every adjacent
 // friendly stack, so supply can run along a line of touching stacks. The capital hex itself is exempt too; a town
 // depot must lie outside the enemy zones (a friendly stack standing on it does not matter, and a stack standing on a
